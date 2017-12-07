@@ -5,7 +5,7 @@
 //! ```
 //! use std::io::Cursor;
 //! use std::collections::HashMap;
-//! use amf0::{Amf0Value, serialize, deserialize};
+//! use rml_amf0::{Amf0Value, serialize, deserialize};
 //!
 //! // Put some data into the Amf0Value types
 //! let mut properties = HashMap::new();
