@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Modules for handling the encoding and decoding of data with Adobe's Action Message Format 0(AMF0 data format."
 authors = ["Matthew Shapiro <me@mshapiro.net>"]
 repository = "https://github.com/KallDrexx/rust-media-libs"
-License = "MIT"
+license = "MIT"
 
 [dependencies]
 byteorder = "0.5.3"
