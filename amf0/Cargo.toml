@@ -1,0 +1,8 @@
+[package]
+name = "rml_amf0"
+version = "0.1.0"
+authors = ["Matthew Shapiro <me@mshapiro.net>"]
+
+[dependencies]
+byteorder = "0.5.3"
+quick-error = "1.1.0"
