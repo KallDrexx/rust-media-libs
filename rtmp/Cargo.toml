@@ -1,0 +1,6 @@
+[package]
+name = "rml_rtmp"
+version = "0.1.0"
+authors = ["Matthew Shapiro <me@mshapiro.net>"]
+
+[dependencies]
