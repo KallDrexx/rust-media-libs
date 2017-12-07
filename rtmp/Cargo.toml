@@ -4,7 +4,9 @@ description = "Rust library for handling aspects of the RTMP protocol."
 version = "0.1.0"
 authors = ["Matthew Shapiro <me@mshapiro.net>"]
 repository = "https://github.com/KallDrexx/rust-media-libs"
-License = "MIT"
 license = "MIT"
 
 [dependencies]
+byteorder = "0.5.3"
+quick-error = "1.1.0"
+rand = "0.3"
