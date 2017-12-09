@@ -28,7 +28,7 @@
 //! assert_eq!(input, results);
 //! ```
 
-#[macro_use] extern crate quick_error;
+#[macro_use] extern crate failure;
 extern crate byteorder;
 
 mod serialization;

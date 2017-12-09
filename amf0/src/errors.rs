@@ -1,45 +1,49 @@
 use std::{io, string};
 
-quick_error! {
-    #[derive(Debug)]
-    pub enum Amf0DeserializationError {
-        UnknownMarker(marker: u8) {
-            description("Encountered unknown marker")
-        }
+#[derive(Debug,Fail)]
+pub enum Amf0DeserializationError {
+    #[fail(display = "Encountered unknown marker: {}", marker)]
+    UnknownMarker{
+        marker: u8
+    },
 
-        UnexpectedEmptyObjectPropertyName {
-            description("Unexpected empty object propery name")
-        }
+    #[fail(display = "Unexpected empty object propery name")]
+    UnexpectedEmptyObjectPropertyName,
 
-        UnexpectedEof {
-            description("Hit end of the byte buffer but was expecting more data")
-        }
+    #[fail(display = "Hit end of the byte buffer but was expecting more data")]
+    UnexpectedEof,
 
-        Io(err: io::Error) {
-            cause(err)
-            description(err.description())
-            from()
-        }
+    #[fail(display = "Failed to read byte buffer: {}", _0)]
+    BufferReadError(#[cause] io::Error),
 
-        FromUtf8Error(err: string::FromUtf8Error) {
-            cause(err)
-            description(err.description())
-            from()
-        }
+    #[fail(display = "Failed to read a utf8 string from the byte buffer: {}", _0)]
+    StringParseError(#[cause] string::FromUtf8Error)
+}
+
+// Since an IO error can only be thrown while reading the buffer, auto-conversion should work
+impl From<io::Error> for Amf0DeserializationError {
+    fn from(error: io::Error) -> Self {
+        Amf0DeserializationError::BufferReadError(error)
     }
 }
 
-quick_error! {
-    #[derive(Debug)]
-    pub enum Amf0SerializationError {
-        NormalStringTooLong {
-            description("String length greater than 65,535")
-        }
+impl From<string::FromUtf8Error> for Amf0DeserializationError {
+    fn from(error: string::FromUtf8Error) -> Self {
+        Amf0DeserializationError::StringParseError(error)
+    }
+}
 
-        Io(err: io::Error) {
-            cause(err)
-            description(err.description())
-            from()
-        }
+#[derive(Debug, Fail)]
+pub enum Amf0SerializationError {
+    #[fail(display = "String length greater than 65,535")]
+    NormalStringTooLong,
+
+    #[fail(display = "Failed to write to byte buffer")]
+    BufferWriteError(#[cause] io::Error)
+}
+
+impl From<io::Error> for Amf0SerializationError {
+    fn from(error: io::Error) -> Self {
+        Amf0SerializationError::BufferWriteError(error)
     }
 }

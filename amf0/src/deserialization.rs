@@ -41,7 +41,7 @@ fn read_next_value(bytes: &mut Read) -> Result<Option<Amf0Value>, Amf0Deserializ
         markers::NUMBER_MARKER => parse_number(bytes).map(Some),
         markers::OBJECT_MARKER => parse_object(bytes).map(Some),
         markers::STRING_MARKER => parse_string(bytes).map(Some),
-        _ => Err(Amf0DeserializationError::UnknownMarker(buffer[0]))
+        _ => Err(Amf0DeserializationError::UnknownMarker{ marker: buffer[0] })
     }
 }
 
