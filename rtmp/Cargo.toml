@@ -8,5 +8,5 @@ license = "MIT"
 
 [dependencies]
 byteorder = "0.5.3"
-quick-error = "1.1.0"
 rand = "0.3"
+failure = "0.1.1"

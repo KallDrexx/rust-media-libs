@@ -1,4 +1,4 @@
-#[macro_use] extern crate quick_error;
+#[macro_use] extern crate failure;
 extern crate byteorder;
 extern crate rand;
 

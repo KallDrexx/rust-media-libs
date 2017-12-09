@@ -1,28 +1,25 @@
 use std::io;
 
-quick_error! {
-    #[derive(Debug)]
-    pub enum HandshakeError {
-        BadVersionId {
-            description("First byte of the handshake did not start with a 3")
-        }
+#[derive(Debug, Fail)]
+pub enum HandshakeError {
+    #[fail(display = "First byte of the handshake did not start with a 3")]
+    BadVersionId,
 
-        NonZeroedTimeInPacket1 {
-            description("Packet 1's 2nd time field was expected to be empty, but wasn't")
-        }
+    #[fail(display = "Packet 1's 2nd time field was expected to be empty, but wasn't")]
+    NonZeroedTimeInPacket1,
 
-        IncorrectPeerTime {
-            description("Peer did not send the correct time back")
-        }
+    #[fail(display = "Peer did not send the correct time back")]
+    IncorrectPeerTime,
 
-        IncorrectRandomData {
-            description("Peer did not send the correct random data back")
-        }
+    #[fail(display = "Peer did not send the correct random data back")]
+    IncorrectRandomData,
 
-        Io(err: io::Error) {
-            cause(err)
-            description(err.description())
-            from()
-        }
+    #[fail(display = "_0")]
+    Io(#[cause] io::Error)
+}
+
+impl From<io::Error> for HandshakeError {
+    fn from(error: io::Error) -> Self {
+        HandshakeError::Io(error)
     }
 }
