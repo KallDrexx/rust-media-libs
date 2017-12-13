@@ -7,6 +7,5 @@ repository = "https://github.com/KallDrexx/rust-media-libs"
 license = "MIT"
 
 [dependencies]
-byteorder = "0.5.3"
+byteorder = "1.2.1"
 failure = "0.1.1"
-quick-error = "1.1.0"
