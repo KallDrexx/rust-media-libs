@@ -28,6 +28,17 @@ pub enum HandshakeError {
     #[fail(display = "Attempted to continue handshake process after completing handshake")]
     HandshakeAlreadyCompleted,
 
+    /// The packet 1 we receive may be one of two formats (digest at position 8 or 772).  There
+    /// is no known way to know which one to expect, so both are tested for.  This error is returned
+    /// when packet 1 does not match either of the messages (and most likely is a bad handshake).
+    #[fail(display = "No known message format could be determined from the received packet 1")]
+    UnknownPacket1Format,
+
+    /// This occurs when the incoming p2 did not either contain an exact copy of the p1 we sent
+    /// (old handshake) or the hmac signature did not match (digest handshake).
+    #[fail(display = "Invalid handshake packet 2 received")]
+    InvalidP2Packet,
+
     /// This occurs when an IO error is encountered while reading the input.
     #[fail(display = "_0")]
     Io(#[cause] io::Error)
