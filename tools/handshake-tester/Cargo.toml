@@ -1,0 +1,8 @@
+[package]
+name = "handshake-tester"
+version = "0.1.0"
+authors = ["Matthew Shapiro <me@mshapiro.net>"]
+description = "CLI application to test the RTMP handshake as both a client or server"
+
+[dependencies]
+rml_rtmp = { path = "../../rtmp" }
