@@ -226,26 +226,19 @@ impl Handshake {
         let received_packet_1: [u8; RTMP_PACKET_SIZE];
         {
             let mut handshake = [0_u8; RTMP_PACKET_SIZE];
-            handshake.copy_from_slice(&self.input_buffer[..RTMP_PACKET_SIZE]);
+            let mut index = 0;
+
+            for x in self.input_buffer.drain(..RTMP_PACKET_SIZE) {
+                handshake[index] = x;
+                index = index + 1;
+            }
 
             received_packet_1 = handshake;
-            self.input_buffer.drain(..RTMP_PACKET_SIZE);
         }
 
         let mut reader = Cursor::new(received_packet_1.as_ref());
         let _ = reader.read_u32::<BigEndian>()?;
         let version = reader.read_u32::<BigEndian>()?;
-
-        // If the peer passed in a p1 based on the original RTMP specification, then we need to
-        // send a p2 that's exactly the same as their p1.  Otherwise we have to get their digest
-        // so we can generate correctly sign our p2 response.  Since the original handshake
-        // requires the version field to be all zeroes, but it's an actual version in the fp9 spec
-        // we can deduce from the version if it's the original handshake or not.
-
-        if version == 0 {
-            // Original handshake
-            return Ok(HandshakeProcessResult::InProgress {response_bytes: received_packet_1.to_vec()});
-        }
 
         // Test against the expected constant string the peer sent over
         let p1_key = match self.peer_type {
@@ -253,7 +246,23 @@ impl Handshake {
             PeerType::Client => GENUINE_FMS_CONST.as_bytes().to_vec(),
         };
 
-        let received_digest = get_digest_for_received_packet(&received_packet_1, &p1_key)?;
+        let received_digest = match get_digest_for_received_packet(&received_packet_1, &p1_key) {
+            Ok(digest) => digest,
+            Err(HandshakeError{kind: HandshakeErrorKind::UnknownPacket1Format}) => {
+                if version == 0 {
+                    // Since no digest was found and the version is 0, chances are that
+                    // this handshake is not a fp9 handshake but instead is the handshake from the
+                    // original RTMP specification.  If that's the case then this isn't an error,
+                    // we just need to send back an exact copy of their p1 and we are good.
+                    self.current_stage = Stage::WaitingForPacket2;
+                    return Ok(HandshakeProcessResult::InProgress {response_bytes: received_packet_1.to_vec()});
+                }
+
+                // Since version is not zero this is probably not a valid RTMP handshake
+                return Err(HandshakeError{kind: HandshakeErrorKind::UnknownPacket1Format});
+            },
+            Err(x) => return Err(x),
+        };
 
         // generate packet 2 for a response
         let mut output_packet = [0_u8; RTMP_PACKET_SIZE];
@@ -275,7 +284,6 @@ impl Handshake {
         }
 
         self.current_stage = Stage::WaitingForPacket2;
-
         Ok(HandshakeProcessResult::InProgress {response_bytes: output_packet.to_vec()})
     }
 
@@ -446,15 +454,12 @@ mod tests {
     }
 
     #[test]
-    fn can_handshake_when_p1_is_passed_back_as_p2_unchanged() {
-        // Note: this verifies we can handle handle the original rtmp specification handshakes
+    fn can_accept_jw_player_example_p0_and_p1() {
         let mut handshake = Handshake::new(PeerType::Server);
         let s0_and_s1 = match handshake.generate_outbound_p0_and_p1() {
             Err(x) => panic!("Unexpected error: {:?}", x),
             Ok(x) => x,
         };
-
-        println!("Test: {:?}", &s0_and_s1[..11]);
 
         assert_eq!(s0_and_s1.len(), 1537, "Expected s0_and_s1 to be 1537 in length");
         assert_eq!(&s0_and_s1[0..1], [3_u8], "Expected s0 to be a 3");
@@ -483,6 +488,41 @@ mod tests {
                    response_bytes: _,
                    remaining_bytes: data,
             }) => data,
+            Ok(x) => panic!("Unexpected response of {:?}", x),
+            Err(x) => panic!("Unexpected error of {:?}", x),
+        };
+
+        assert_eq!(remaining_bytes.len(), 0, "Expected no remaining bytes");
+        assert_eq!(handshake.current_stage, Stage::Complete);
+    }
+
+    #[test]
+    fn can_handshake_with_client_sending_original_rtmp_specification_handshake() {
+        // For this test to be accurate, bytes 4-7 must be zeros, just like the spec calls for
+        let mut c0_and_c1 = [0_u8; RTMP_PACKET_SIZE + 1];
+        c0_and_c1[0] = 3;
+        fill_with_random_data(&mut c0_and_c1[9..RTMP_PACKET_SIZE + 1]);
+
+        let mut handshake = Handshake::new(PeerType::Server);
+        let s0_and_s1 = match handshake.generate_outbound_p0_and_p1() {
+            Err(x) => panic!("Unexpected error: {:?}", x),
+            Ok(x) => x,
+        };
+
+        let s2 = match handshake.process_bytes(&c0_and_c1) {
+            Ok(HandshakeProcessResult::InProgress {response_bytes: data}) => data,
+            Ok(x) => panic!("Unexpected response of {:?}", x),
+            Err(x) => panic!("Unexpected error of {:?}", x),
+        };
+
+        assert_eq!(&s2[..], &c0_and_c1[1..], "Expected s2 value matching our c1");
+        assert_eq!(handshake.current_stage, Stage::WaitingForPacket2);
+
+        let remaining_bytes = match handshake.process_bytes(&s0_and_s1[1..]) {
+            Ok(HandshakeProcessResult::Completed {
+                   response_bytes: _,
+                   remaining_bytes: data,
+               }) => data,
             Ok(x) => panic!("Unexpected response of {:?}", x),
             Err(x) => panic!("Unexpected error of {:?}", x),
         };
