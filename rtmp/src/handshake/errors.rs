@@ -1,8 +1,15 @@
 use std::io;
+use std::fmt;
+use failure::{Backtrace, Fail};
+
+#[derive(Debug)]
+pub struct HandshakeError {
+    pub kind: HandshakeErrorKind,
+}
 
 /// Enumeration that represents the various errors that can occur during the handshaking process
 #[derive(Debug, Fail)]
-pub enum HandshakeError {
+pub enum HandshakeErrorKind {
     /// The RTMP specification requires the first byte in the handshake process to start with a
     /// 3, so this error is encountered if any other value is in the first byte.
     #[fail(display = "First byte of the handshake did not start with a 3")]
@@ -44,8 +51,30 @@ pub enum HandshakeError {
     Io(#[cause] io::Error)
 }
 
+impl fmt::Display for HandshakeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.kind, f)
+    }
+}
+
+impl Fail for HandshakeError {
+    fn cause(&self) -> Option<&Fail> {
+        self.kind.cause()
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.kind.backtrace()
+    }
+}
+
+impl From<HandshakeErrorKind> for HandshakeError {
+    fn from(kind: HandshakeErrorKind) -> Self {
+        HandshakeError { kind }
+    }
+}
+
 impl From<io::Error> for HandshakeError {
     fn from(error: io::Error) -> Self {
-        HandshakeError::Io(error)
+        HandshakeError { kind: HandshakeErrorKind::Io(error) }
     }
 }

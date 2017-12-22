@@ -23,7 +23,7 @@
 
 pub mod errors;
 
-use self::errors::HandshakeError;
+use self::errors::{HandshakeError, HandshakeErrorKind};
 use std::io::{Cursor};
 use byteorder::{BigEndian, ReadBytesExt};
 use rand;
@@ -170,7 +170,7 @@ impl Handshake {
                 Stage::WaitingForPacket0 => self.parse_p0(),
                 Stage::WaitingForPacket1 => self.parse_p1(),
                 Stage::WaitingForPacket2 => self.parse_p2(),
-                Stage::Complete => Err(HandshakeError::HandshakeAlreadyCompleted)
+                Stage::Complete => Err(HandshakeError{kind: HandshakeErrorKind::HandshakeAlreadyCompleted})
             };
 
             match result {
@@ -208,7 +208,7 @@ impl Handshake {
 
         self.command_byte = self.input_buffer.remove(0);
         if self.command_byte != 3_u8 {
-            return Err(HandshakeError::BadVersionId);
+            return Err(HandshakeError{kind: HandshakeErrorKind::BadVersionId});
         };
 
         self.current_stage = Stage::WaitingForPacket1;
@@ -334,7 +334,7 @@ impl Handshake {
         }
 
         if &expected_hmac[..] != &hmac2[..] {
-            return Err(HandshakeError::InvalidP2Packet);
+            return Err(HandshakeError{kind: HandshakeErrorKind::InvalidP2Packet});
         }
 
         self.current_stage = Stage::Complete;
@@ -366,7 +366,7 @@ fn get_digest_for_received_packet(packet: &[u8; RTMP_PACKET_SIZE], key: &[u8]) -
     match true {
         _ if v1_hmac == v1_parts.digest => {println!("v1"); Ok(v1_parts.digest) },
         _ if v2_hmac == v2_parts.digest => {println!("v2"); Ok(v2_parts.digest) },
-        _ => Err(HandshakeError::UnknownPacket1Format)
+        _ => Err(HandshakeError{ kind: HandshakeErrorKind::UnknownPacket1Format})
     }
 }
 
@@ -460,7 +460,7 @@ mod tests {
 
         match handshake.process_bytes(&input) {
             Ok(_) => panic!("No error was returned"),
-            Err(HandshakeError::BadVersionId) => {},
+            Err(HandshakeError{kind: HandshakeErrorKind::BadVersionId}) => {},
             Err(x) => panic!("Unexpected error received of {:?}", x)
         }
     }
