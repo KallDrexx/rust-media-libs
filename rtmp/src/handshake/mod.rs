@@ -108,7 +108,7 @@ impl Handshake {
     /// packets #0 and #1 will be included as the handshake's response.
     ///
     /// For now this only sends a command byte of 3 (no encryption).
-    pub fn generate_outbound_p0_and_p1(&mut self) -> Result<HandshakeProcessResult, HandshakeError> {
+    pub fn generate_outbound_p0_and_p1(&mut self) -> Result<Vec<u8>, HandshakeError> {
         const ADOBE_VERSION : [u8; 4] = [128_u8, 0_u8, 7_u8, 2_u8]; // Copied from jw player handshake
 
         // Leave time field as zero, version field as ADOBE_VERSION, and the rest of the packet
@@ -142,7 +142,7 @@ impl Handshake {
 
         self.current_stage = Stage::WaitingForPacket0;
 
-        Ok(HandshakeProcessResult::InProgress {response_bytes: output})
+        Ok(output)
     }
 
     /// Processes the passed in bytes as part of the handshake process.  If not enough bytes
@@ -166,7 +166,10 @@ impl Handshake {
         loop {
             let starting_stage = self.current_stage.clone();
             let result = match self.current_stage {
-                Stage::NeedToSendP0AndP1 => self.generate_outbound_p0_and_p1(),
+                Stage::NeedToSendP0AndP1 => match self.generate_outbound_p0_and_p1() {
+                    Err(x) => Err(x),
+                    Ok(bytes) => Ok(HandshakeProcessResult::InProgress {response_bytes: bytes})
+                },
                 Stage::WaitingForPacket0 => self.parse_p0(),
                 Stage::WaitingForPacket1 => self.parse_p1(),
                 Stage::WaitingForPacket2 => self.parse_p2(),
@@ -250,7 +253,6 @@ impl Handshake {
             PeerType::Client => GENUINE_FMS_CONST.as_bytes().to_vec(),
         };
 
-        println!("Peer type: {:?}", self.peer_type);
         let received_digest = get_digest_for_received_packet(&received_packet_1, &p1_key)?;
 
         // generate packet 2 for a response
@@ -270,15 +272,6 @@ impl Handshake {
         // the hmac2 signature is written to the end of the p2 packet
         for index in 0..SHA256_DIGEST_LENGTH {
             output_packet[P2_SIG_START_INDEX + index] = hmac2[index];
-        }
-
-        if self.peer_type == PeerType::Server {
-            println!("peer_type: {:?}", self.peer_type);
-            println!("p2_key: {:?}", p2_key);
-            println!("hmac1: {:?}", hmac1);
-            println!("hmac2: {:?}", hmac2);
-            println!("index: {:?}", P2_SIG_START_INDEX);
-            println!("received_digest: {:?}", received_digest);
         }
 
         self.current_stage = Stage::WaitingForPacket2;
@@ -324,15 +317,6 @@ impl Handshake {
         let hmac1 = calc_hmac(&self.sent_digest, &peer_key[..]);
         let hmac2 = calc_hmac(&received_packet_2[..P2_SIG_START_INDEX], &hmac1);
 
-        if self.peer_type == PeerType::Client {
-            println!("peer_type: {:?}", self.peer_type);
-            println!("peer_key: {:?}", peer_key);
-            println!("expected_hmac: {:?}", expected_hmac);
-            println!("hmac1: {:?}", hmac1);
-            println!("hmac2: {:?}", hmac2);
-            println!("sent_digest: {:?}", self.sent_digest);
-        }
-
         if &expected_hmac[..] != &hmac2[..] {
             return Err(HandshakeError{kind: HandshakeErrorKind::InvalidP2Packet});
         }
@@ -359,13 +343,9 @@ fn get_digest_for_received_packet(packet: &[u8; RTMP_PACKET_SIZE], key: &[u8]) -
     let v2_parts = get_message_parts(&packet, v2_offset)?;
     let v2_hmac = calc_hmac_from_parts(&v2_parts.before_digest, &v2_parts.after_digest, &key);
 
-    println!("offsets: {} / {}", v1_offset, v2_offset);
-    println!("v1_digest: {:?}", &v1_parts.digest);
-    println!("v2_digest: {:?}", &v2_parts.digest);
-
     match true {
-        _ if v1_hmac == v1_parts.digest => {println!("v1"); Ok(v1_parts.digest) },
-        _ if v2_hmac == v2_parts.digest => {println!("v2"); Ok(v2_parts.digest) },
+        _ if v1_hmac == v1_parts.digest => Ok(v1_parts.digest),
+        _ if v2_hmac == v2_parts.digest => Ok(v2_parts.digest),
         _ => Err(HandshakeError{ kind: HandshakeErrorKind::UnknownPacket1Format})
     }
 }
@@ -471,8 +451,7 @@ mod tests {
         let mut handshake = Handshake::new(PeerType::Server);
         let s0_and_s1 = match handshake.generate_outbound_p0_and_p1() {
             Err(x) => panic!("Unexpected error: {:?}", x),
-            Ok(HandshakeProcessResult::InProgress {response_bytes: x}) => x,
-            Ok(x) => panic!("Unexpected handshake result: {:?}", x)
+            Ok(x) => x,
         };
 
         println!("Test: {:?}", &s0_and_s1[..11]);
@@ -521,7 +500,7 @@ mod tests {
         let mut server = Handshake::new(PeerType::Server);
 
         let c0_and_c1 = match client.generate_outbound_p0_and_p1() {
-            Ok(HandshakeProcessResult::InProgress {response_bytes: bytes}) => bytes,
+            Ok(bytes) => bytes,
             x => panic!("Unexpected process_bytes response: {:?}", x),
         };
 
