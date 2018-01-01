@@ -13,6 +13,15 @@ pub struct MessagePayload {
 }
 
 impl MessagePayload {
+    pub fn new() -> MessagePayload {
+        MessagePayload {
+            timestamp: RtmpTimestamp::new(0),
+            message_stream_id: 0,
+            type_id: 0,
+            data: Vec::new(),
+        }
+    }
+
     pub fn to_rtmp_message(&self) -> Result<RtmpMessage, MessageDeserializationError> {
         match self.type_id {
             1 => types::set_chunk_size::deserialize(&self.data[..]),
