@@ -2,19 +2,16 @@ use std::io::Cursor;
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use ::messages::{MessageDeserializationError, MessageSerializationError};
-use ::messages::{RtmpMessage, RawRtmpMessage};
+use ::messages::{RtmpMessage};
 
-pub fn serialize(sequence_number: u32) -> Result<RawRtmpMessage, MessageSerializationError> {
+pub fn serialize(sequence_number: u32) -> Result<Vec<u8>, MessageSerializationError> {
     let mut cursor = Cursor::new(Vec::new());
     cursor.write_u32::<BigEndian>(sequence_number)?;
 
-    Ok(RawRtmpMessage{
-        data: cursor.into_inner(),
-        type_id: 3
-    })
+    Ok(cursor.into_inner())
 }
 
-pub fn deserialize(data: Vec<u8>) -> Result<RtmpMessage, MessageDeserializationError> {
+pub fn deserialize(data: &[u8]) -> Result<RtmpMessage, MessageDeserializationError> {
     let mut cursor = Cursor::new(data);
 
     Ok(RtmpMessage::Acknowledgement {
@@ -24,23 +21,21 @@ pub fn deserialize(data: Vec<u8>) -> Result<RtmpMessage, MessageDeserializationE
 
 #[cfg(test)]
 mod tests {
+    use super::{serialize, deserialize};
     use std::io::Cursor;
     use byteorder::{BigEndian, WriteBytesExt};
 
-    use ::messages::{RtmpMessage, RawRtmpMessage};
+    use ::messages::{RtmpMessage};
 
     #[test]
     fn can_serialize_message() {
         let number = 523;
-        let message = RtmpMessage::Acknowledgement { sequence_number: number };
-
-        let result = message.serialize().unwrap();
+        let result = serialize(number).unwrap();
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u32::<BigEndian>(number).unwrap();
-        let expected = RawRtmpMessage { type_id: 3, data: cursor.into_inner() };
 
-        assert_eq!(expected, result);
+        assert_eq!(cursor.into_inner(), result);
     }
 
     #[test]
@@ -49,7 +44,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u32::<BigEndian>(number).unwrap();
 
-        let result = RtmpMessage::deserialize(cursor.into_inner(), 3).unwrap();
+        let result = deserialize(&cursor.into_inner()[..]).unwrap();
 
         let expected = RtmpMessage::Acknowledgement { sequence_number: number };
         assert_eq!(expected, result);

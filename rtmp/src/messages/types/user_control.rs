@@ -3,12 +3,12 @@ use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use ::time::RtmpTimestamp;
 use ::messages::{MessageDeserializationError, MessageSerializationError, MessageDeserializationErrorKind};
-use ::messages::{RtmpMessage, RawRtmpMessage, UserControlEventType};
+use ::messages::{RtmpMessage, UserControlEventType};
 
 pub fn serialize(event_type: UserControlEventType,
                  stream_id: Option<u32>,
                  buffer_length: Option<u32>,
-                 timestamp: Option<RtmpTimestamp>) -> Result<RawRtmpMessage, MessageSerializationError> {
+                 timestamp: Option<RtmpTimestamp>) -> Result<Vec<u8>, MessageSerializationError> {
     let mut cursor = Cursor::new(Vec::new());
     match event_type {
         UserControlEventType::StreamBegin => write_stream_event(&mut cursor, 0, stream_id)?,
@@ -20,13 +20,10 @@ pub fn serialize(event_type: UserControlEventType,
         UserControlEventType::PingResponse => write_timestamp_event(&mut cursor, 7, timestamp)?
     };
 
-    Ok(RawRtmpMessage{
-        data: cursor.into_inner(),
-        type_id: 4
-    })
+    Ok(cursor.into_inner())
 }
 
-pub fn deserialize(data: Vec<u8>) -> Result<RtmpMessage, MessageDeserializationError> {
+pub fn deserialize(data: &[u8]) -> Result<RtmpMessage, MessageDeserializationError> {
     let mut cursor = Cursor::new(data);
     let event_type = match cursor.read_u16::<BigEndian>()? {
         0 => UserControlEventType::StreamBegin,
@@ -108,6 +105,7 @@ fn write_timestamp_event<W: Write>(bytes: &mut W, event_id: u16, timestamp: Opti
 
 #[cfg(test)]
 mod tests {
+    use super::{serialize, deserialize};
     use std::io::Cursor;
     use byteorder::{BigEndian, WriteBytesExt};
     
@@ -117,73 +115,58 @@ mod tests {
     #[test]
     fn can_serialize_stream_begin_message() {
         let stream_id = 555;
-        let message = RtmpMessage::UserControl {
-            event_type: UserControlEventType::StreamBegin,
-            stream_id: Some(stream_id),
-            buffer_length: None,
-            timestamp: None
-        };
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(0).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         let expected = cursor.into_inner();
 
-        let raw_message = message.serialize().unwrap();
-        assert_eq!(raw_message.data, expected);
-        assert_eq!(raw_message.type_id, 4);
+        let raw_message = serialize(UserControlEventType::StreamBegin,
+            Some(stream_id),
+            None,
+            None).unwrap();
+
+        assert_eq!(raw_message, expected);
     }
 
     #[test]
     fn can_serialize_stream_eof_message() {
         let stream_id = 555;
-        let message = RtmpMessage::UserControl {
-            event_type: UserControlEventType::StreamEof,
-            stream_id: Some(stream_id),
-            buffer_length: None,
-            timestamp: None
-        };
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(1).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         let expected = cursor.into_inner();
 
-        let raw_message = message.serialize().unwrap();
-        assert_eq!(raw_message.data, expected);
-        assert_eq!(raw_message.type_id, 4);
+        let raw_message = serialize(UserControlEventType::StreamEof,
+            Some(stream_id),
+            None,
+            None).unwrap();
+
+        assert_eq!(raw_message, expected);
     }
 
     #[test]
     fn can_serialize_stream_dry_message() {
         let stream_id = 555;
-        let message = RtmpMessage::UserControl {
-            event_type: UserControlEventType::StreamDry,
-            stream_id: Some(stream_id),
-            buffer_length: None,
-            timestamp: None
-        };
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(2).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         let expected = cursor.into_inner();
 
-        let raw_message = message.serialize().unwrap();
-        assert_eq!(raw_message.data, expected);
-        assert_eq!(raw_message.type_id, 4);
+        let raw_message = serialize(UserControlEventType::StreamDry,
+            Some(stream_id),
+            None,
+            None).unwrap();
+
+        assert_eq!(raw_message, expected);
     }
 
     #[test]
     fn can_serialize_set_buffer_length_message() {
         let stream_id = 555;
         let buffer_length = 666;
-        let message = RtmpMessage::UserControl {
-            event_type: UserControlEventType::SetBufferLength,
-            stream_id: Some(stream_id),
-            buffer_length: Some(buffer_length),
-            timestamp: None
-        };
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(3).unwrap();
@@ -191,69 +174,63 @@ mod tests {
         cursor.write_u32::<BigEndian>(buffer_length).unwrap();
         let expected = cursor.into_inner();
 
-        let raw_message = message.serialize().unwrap();
-        assert_eq!(raw_message.data, expected);
-        assert_eq!(raw_message.type_id, 4);
+        let raw_message = serialize(UserControlEventType::SetBufferLength,
+            Some(stream_id),
+            Some(buffer_length),
+            None).unwrap();
+
+        assert_eq!(raw_message, expected);
     }
 
     #[test]
     fn can_serialize_stream_is_recorded_message() {
         let stream_id = 555;
-        let message = RtmpMessage::UserControl {
-            event_type: UserControlEventType::StreamIsRecorded,
-            stream_id: Some(stream_id),
-            buffer_length: None,
-            timestamp: None
-        };
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(4).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         let expected = cursor.into_inner();
 
-        let raw_message = message.serialize().unwrap();
-        assert_eq!(raw_message.data, expected);
-        assert_eq!(raw_message.type_id, 4);
+        let raw_message = serialize(UserControlEventType::StreamIsRecorded,
+            Some(stream_id),
+            None,
+            None).unwrap();
+
+        assert_eq!(raw_message, expected);
     }
 
     #[test]
     fn can_serialize_ping_request_message() {
         let time = 555;
-        let message = RtmpMessage::UserControl {
-            event_type: UserControlEventType::PingRequest,
-            stream_id: None,
-            buffer_length: None,
-            timestamp: Some(RtmpTimestamp::new(time))
-        };
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(6).unwrap();
         cursor.write_u32::<BigEndian>(time).unwrap();
         let expected = cursor.into_inner();
 
-        let raw_message = message.serialize().unwrap();
-        assert_eq!(raw_message.data, expected);
-        assert_eq!(raw_message.type_id, 4);
+        let raw_message = serialize(UserControlEventType::PingRequest,
+            None,
+            None,
+            Some(RtmpTimestamp::new(time))).unwrap();
+
+        assert_eq!(raw_message, expected);
     }
 
     #[test]
     fn can_serialize_ping_response_message() {
         let time = 555;
-        let message = RtmpMessage::UserControl {
-            event_type: UserControlEventType::PingResponse,
-            stream_id: None,
-            buffer_length: None,
-            timestamp: Some(RtmpTimestamp::new(time))
-        };
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(7).unwrap();
         cursor.write_u32::<BigEndian>(time).unwrap();
         let expected = cursor.into_inner();
 
-        let raw_message = message.serialize().unwrap();
-        assert_eq!(raw_message.data, expected);
-        assert_eq!(raw_message.type_id, 4);
+        let raw_message = serialize(UserControlEventType::PingResponse,
+            None,
+            None,
+            Some(RtmpTimestamp::new(time))).unwrap();
+
+        assert_eq!(raw_message, expected);
     }
 
     #[test]
@@ -271,7 +248,7 @@ mod tests {
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         let data = cursor.into_inner();
 
-        let result = RtmpMessage::deserialize(data, 4).unwrap();
+        let result = deserialize(&data[..]).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -290,7 +267,7 @@ mod tests {
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         let data = cursor.into_inner();
 
-        let result = RtmpMessage::deserialize(data, 4).unwrap();
+        let result = deserialize(&data[..]).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -309,7 +286,7 @@ mod tests {
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         let data = cursor.into_inner();
 
-        let result = RtmpMessage::deserialize(data, 4).unwrap();
+        let result = deserialize(&data[..]).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -330,7 +307,7 @@ mod tests {
         cursor.write_u32::<BigEndian>(buffer_length).unwrap();
         let data = cursor.into_inner();
 
-        let result = RtmpMessage::deserialize(data, 4).unwrap();
+        let result = deserialize(&data[..]).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -349,7 +326,7 @@ mod tests {
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         let data = cursor.into_inner();
 
-        let result = RtmpMessage::deserialize(data, 4).unwrap();
+        let result = deserialize(&data[..]).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -368,7 +345,7 @@ mod tests {
         cursor.write_u32::<BigEndian>(time).unwrap();
         let data = cursor.into_inner();
 
-        let result = RtmpMessage::deserialize(data, 4).unwrap();
+        let result = deserialize(&data[..]).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -387,7 +364,7 @@ mod tests {
         cursor.write_u32::<BigEndian>(time).unwrap();
         let data = cursor.into_inner();
 
-        let result = RtmpMessage::deserialize(data, 4).unwrap();
+        let result = deserialize(&data[..]).unwrap();
         assert_eq!(result, expected);
     }
 }

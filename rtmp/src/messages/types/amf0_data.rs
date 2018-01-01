@@ -3,18 +3,15 @@ use rml_amf0;
 use rml_amf0::Amf0Value;
 
 use ::messages::{MessageDeserializationError, MessageSerializationError};
-use ::messages::{RtmpMessage, RawRtmpMessage};
+use ::messages::{RtmpMessage};
 
-pub fn serialize(values: Vec<Amf0Value>) -> Result<RawRtmpMessage, MessageSerializationError> {
+pub fn serialize(values: Vec<Amf0Value>) -> Result<Vec<u8>, MessageSerializationError> {
     let bytes = rml_amf0::serialize(&values)?;
 
-    Ok(RawRtmpMessage{
-        data: bytes,
-        type_id: 18
-    })
+    Ok(bytes)
 }
 
-pub fn deserialize(data: Vec<u8>) -> Result<RtmpMessage, MessageDeserializationError> {
+pub fn deserialize(data: &[u8]) -> Result<RtmpMessage, MessageDeserializationError> {
     let mut cursor = Cursor::new(data);
     let values = rml_amf0::deserialize(&mut cursor)?;
 
@@ -23,6 +20,7 @@ pub fn deserialize(data: Vec<u8>) -> Result<RtmpMessage, MessageDeserializationE
 
 #[cfg(test)]
 mod tests {
+    use super::{serialize, deserialize};
     use std::io::Cursor;
     use rml_amf0::Amf0Value;
     use rml_amf0;
@@ -31,18 +29,13 @@ mod tests {
 
     #[test]
     fn can_serialize_message() {
-        let message = RtmpMessage::Amf0Data {
-            values: vec![Amf0Value::Boolean(true), Amf0Value::Number(52.0)]
-        };
+        let raw_message = serialize(vec![Amf0Value::Boolean(true), Amf0Value::Number(52.0)]).unwrap();
 
-        let raw_message = RtmpMessage::serialize(message).unwrap();
-
-        let mut cursor = Cursor::new(raw_message.data);
+        let mut cursor = Cursor::new(raw_message);
         let result = rml_amf0::deserialize(&mut cursor).unwrap();
         let expected = vec![Amf0Value::Boolean(true), Amf0Value::Number(52.0)];
 
         assert_eq!(expected, result);
-        assert_eq!(18, raw_message.type_id);
     }
 
     #[test]
@@ -50,7 +43,7 @@ mod tests {
         let values = vec![Amf0Value::Boolean(true), Amf0Value::Number(52.0)];
         let bytes = rml_amf0::serialize(&values).unwrap();
 
-        let result = RtmpMessage::deserialize(bytes, 18).unwrap();
+        let result = deserialize(&bytes[..]).unwrap();
 
         let expected = RtmpMessage::Amf0Data {
             values: vec![Amf0Value::Boolean(true), Amf0Value::Number(52.0)]

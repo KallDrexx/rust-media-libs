@@ -41,7 +41,7 @@ pub use errors::{Amf0DeserializationError, Amf0SerializationError};
 
 use std::collections::HashMap;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Amf0Value {
     Number(f64),
     Boolean(bool),

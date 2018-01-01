@@ -3,12 +3,12 @@ use rml_amf0;
 use rml_amf0::Amf0Value;
 
 use ::messages::{MessageDeserializationErrorKind, MessageDeserializationError, MessageSerializationError};
-use ::messages::{RtmpMessage, RawRtmpMessage};
+use ::messages::{RtmpMessage};
 
 pub fn serialize(command_name: String,
                  transaction_id: f64,
                  command_object: Amf0Value,
-                 mut additional_arguments: Vec<Amf0Value>) -> Result<RawRtmpMessage, MessageSerializationError> {
+                 mut additional_arguments: Vec<Amf0Value>) -> Result<Vec<u8>, MessageSerializationError> {
     let mut values = vec![
         Amf0Value::Utf8String(command_name),
         Amf0Value::Number(transaction_id),
@@ -18,13 +18,10 @@ pub fn serialize(command_name: String,
     values.append(&mut additional_arguments);
     let bytes = rml_amf0::serialize(&values)?;
 
-    Ok(RawRtmpMessage{
-        data: bytes,
-        type_id: 20
-    })
+    Ok(bytes)
 }
 
-pub fn deserialize(data: Vec<u8>) -> Result<RtmpMessage, MessageDeserializationError> {
+pub fn deserialize(data: &[u8]) -> Result<RtmpMessage, MessageDeserializationError> {
     let mut cursor = Cursor::new(data);
     let mut arguments = rml_amf0::deserialize(&mut cursor)?;
 
@@ -57,6 +54,7 @@ pub fn deserialize(data: Vec<u8>) -> Result<RtmpMessage, MessageDeserializationE
 
 #[cfg(test)]
 mod tests {
+    use super::{serialize, deserialize};
     use std::io::Cursor;
     use std::collections::HashMap;
     use rml_amf0::Amf0Value;
@@ -74,15 +72,14 @@ mod tests {
         properties2.insert("prop1".to_string(), Amf0Value::Utf8String("abc".to_string()));
         properties2.insert("prop2".to_string(), Amf0Value::Null);
 
-        let message = RtmpMessage::Amf0Command {
-            command_name: "test".to_string(),
-            transaction_id: 23.0,
-            command_object: Amf0Value::Object(properties1),
-            additional_arguments: vec![Amf0Value::Boolean(true), Amf0Value::Number(52.0)]
-        };
+        let raw_message = serialize(
+            "test".to_string(),
+            23.0,
+            Amf0Value::Object(properties1),
+            vec![Amf0Value::Boolean(true), Amf0Value::Number(52.0)]
+        ).unwrap();
 
-        let raw_message = message.serialize().unwrap();
-        let mut cursor = Cursor::new(raw_message.data);
+        let mut cursor = Cursor::new(raw_message);
         let result = rml_amf0::deserialize(&mut cursor).unwrap();
 
         let expected = vec![
@@ -94,7 +91,6 @@ mod tests {
         ];
 
         assert_eq!(expected, result);
-        assert_eq!(20, raw_message.type_id);
     }
 
     #[test]
@@ -124,7 +120,7 @@ mod tests {
             additional_arguments: vec![Amf0Value::Boolean(true), Amf0Value::Number(52.0)]
         };
 
-        let result = RtmpMessage::deserialize(bytes, 20).unwrap();
+        let result = deserialize(&bytes[..]).unwrap();
 
         assert_eq!(expected, result);
     }

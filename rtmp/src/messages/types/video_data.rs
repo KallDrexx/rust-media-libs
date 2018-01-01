@@ -1,32 +1,27 @@
 use ::messages::{MessageDeserializationError, MessageSerializationError};
-use ::messages::{RtmpMessage, RawRtmpMessage};
+use ::messages::{RtmpMessage};
 
-pub fn serialize(bytes: Vec<u8>) -> Result<RawRtmpMessage, MessageSerializationError> {
-    Ok(RawRtmpMessage{
-        data: bytes,
-        type_id: 9
-    })
+pub fn serialize(bytes: Vec<u8>) -> Result<Vec<u8>, MessageSerializationError> {
+    Ok(bytes)
 }
 
-pub fn deserialize(data: Vec<u8>) -> Result<RtmpMessage, MessageDeserializationError> {
+pub fn deserialize(data: &[u8]) -> Result<RtmpMessage, MessageDeserializationError> {
     Ok(RtmpMessage::VideoData {
-        data
+        data: data.to_vec()
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{serialize, deserialize};
     use ::messages::RtmpMessage;
 
     #[test]
     fn can_serialize_message() {
-        let message = RtmpMessage::VideoData { data: vec![1,2,3,4] };
         let expected = vec![1,2,3,4];
+        let raw_message = serialize(vec![1,2,3,4]).unwrap();
 
-        let raw_message = message.serialize().unwrap();
-
-        assert_eq!(raw_message.data, expected);
-        assert_eq!(raw_message.type_id, 9);
+        assert_eq!(raw_message, expected);
     }
 
     #[test]
@@ -34,7 +29,7 @@ mod tests {
         let data = vec![1,2,3,4];
         let expected = RtmpMessage::VideoData { data: vec![1,2,3,4] };
 
-        let result = RtmpMessage::deserialize(data, 9).unwrap();
+        let result = deserialize(&data[..]).unwrap();
         assert_eq!(result, expected);
     }
 }
