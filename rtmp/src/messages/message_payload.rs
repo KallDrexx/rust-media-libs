@@ -8,7 +8,7 @@ use super::types;
 pub struct MessagePayload {
     pub timestamp: RtmpTimestamp,
     pub type_id: u8,
-    pub chunk_stream_id: u32,
+    pub message_stream_id: u32,
     pub data: Vec<u8>,
 }
 
@@ -29,9 +29,8 @@ impl MessagePayload {
         }
     }
 
-    pub fn from_rtmp_message(message: RtmpMessage, timestamp: RtmpTimestamp) -> Result<MessagePayload, MessageSerializationError> {
+    pub fn from_rtmp_message(message: RtmpMessage, timestamp: RtmpTimestamp, message_stream_id: u32) -> Result<MessagePayload, MessageSerializationError> {
         let type_id = get_message_type_id(&message);
-        let csid = get_default_csid(&message);
 
         let bytes = match message {
             RtmpMessage::Unknown { type_id: _, data }
@@ -71,7 +70,7 @@ impl MessagePayload {
         Ok(MessagePayload {
             data: bytes,
             type_id,
-            chunk_stream_id: csid,
+            message_stream_id,
             timestamp
         })
     }
@@ -93,26 +92,6 @@ fn get_message_type_id(message: &RtmpMessage) -> u8 {
     }
 }
 
-fn get_default_csid(message: &RtmpMessage) -> u32 {
-    // These are just chunk stream ids correlations I have noticed in the wild.  Presumably the
-    // csid doesn't matter, mostly just to spread the messages out for best header compression
-    // (and video/audio should be on separate csids since their timestamps are relative to
-    // a/v timestamps, not server/client epochs like the rest).
-    match *message {
-        RtmpMessage::Unknown { type_id: _, data: _ } => 2,
-        RtmpMessage::Abort { stream_id: _ } => 2,
-        RtmpMessage::Acknowledgement { sequence_number: _ } => 2,
-        RtmpMessage::Amf0Command { command_name: _, transaction_id: _, command_object: _, additional_arguments: _ } => 3,
-        RtmpMessage::Amf0Data { values: _ } => 3,
-        RtmpMessage::AudioData { data: _ } => 5,
-        RtmpMessage::SetChunkSize { size: _ } => 2,
-        RtmpMessage::SetPeerBandwidth { size: _, limit_type: _ } => 2,
-        RtmpMessage::UserControl { event_type: _, stream_id: _, buffer_length: _, timestamp: _ } => 2,
-        RtmpMessage::VideoData { data: _ } => 4,
-        RtmpMessage::WindowAcknowledgement { size: _ } => 2,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{RtmpMessage, MessagePayload};
@@ -123,30 +102,33 @@ mod tests {
     #[test]
     fn can_get_payload_from_abort_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::Abort { stream_id: 23 };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 2, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 2, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_acknowledgement_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::Acknowledgement { sequence_number: 23 };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 3, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 2, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_amf0_command_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::Amf0Command {
             command_name: "test".to_string(),
             command_object: Amf0Value::Null,
@@ -154,119 +136,127 @@ mod tests {
             additional_arguments: vec![]
         };
 
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 20, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 3, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_amf0_data_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::Amf0Data { values: vec![Amf0Value::Number(23.0)] };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 18, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 3, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_audio_data_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::AudioData { data: vec![33_u8] };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 8, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 5, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_set_chunk_size_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::SetChunkSize { size: 33 };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 1, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 2, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_set_peer_bandwidth_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::SetPeerBandwidth { size:33, limit_type: PeerBandwidthLimitType::Hard };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 6, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 2, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_user_control_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::UserControl { event_type: UserControlEventType::StreamBegin,
             stream_id: Some(33),
             timestamp: None,
             buffer_length: None
         };
 
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 4, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 2, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_video_data_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::VideoData { data: vec![23_u8] };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 9, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 4, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_window_acknowledgement_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::WindowAcknowledgement { size: 23 };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 5, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 2, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_payload_from_unknown_message() {
         let timestamp = RtmpTimestamp::new(55);
+        let stream_id = 52;
         let message = RtmpMessage::Unknown { type_id: 33, data: vec![23_u8] };
-        let result = MessagePayload::from_rtmp_message(message, timestamp).unwrap();
+        let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
         assert_eq!(result.type_id, 33, "Incorrect type id");
-        assert_eq!(result.chunk_stream_id, 2, "Incorrect default csid");
+        assert_eq!(result.message_stream_id, stream_id, "Incorrect message stream id");
         assert_eq!(result.timestamp, 55, "Incorrect timestamp");
     }
 
     #[test]
     fn can_get_rtmp_message_for_abort_payload() {
         let message = RtmpMessage::Abort { stream_id: 15 };
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -275,7 +265,7 @@ mod tests {
     #[test]
     fn can_get_rtmp_message_for_acknowledgement_payload() {
         let message = RtmpMessage::Acknowledgement { sequence_number:15 };
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -290,7 +280,7 @@ mod tests {
             additional_arguments: vec![Amf0Value::Null]
         };
 
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -299,7 +289,7 @@ mod tests {
     #[test]
     fn can_get_rtmp_message_for_amf0_data_payload() {
         let message = RtmpMessage::Amf0Data { values: vec![Amf0Value::Number(23.3)]};
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -308,7 +298,7 @@ mod tests {
     #[test]
     fn can_get_rtmp_message_for_audio_data_payload() {
         let message = RtmpMessage::AudioData { data: vec![3_u8]};
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -317,7 +307,7 @@ mod tests {
     #[test]
     fn can_get_rtmp_message_for_set_chunk_size_payload() {
         let message = RtmpMessage::SetChunkSize { size: 15 };
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -326,7 +316,7 @@ mod tests {
     #[test]
     fn can_get_rtmp_message_for_set_peer_bandwidth_payload() {
         let message = RtmpMessage::SetPeerBandwidth {size: 15, limit_type: PeerBandwidthLimitType::Hard};
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -341,7 +331,7 @@ mod tests {
             event_type: UserControlEventType::StreamBegin
         };
 
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -350,7 +340,7 @@ mod tests {
     #[test]
     fn can_get_rtmp_message_for_video_data_payload() {
         let message = RtmpMessage::VideoData {data: vec![3_u8]};
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
@@ -359,7 +349,7 @@ mod tests {
     #[test]
     fn can_get_rtmp_message_for_window_acknowledgement_payload() {
         let message = RtmpMessage::WindowAcknowledgement {size:25};
-        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0)).unwrap();
+        let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);
