@@ -7,7 +7,7 @@ mod serializer;
 pub use self::deserialization_errors::{ChunkDeserializationError, ChunkDeserializationErrorKind};
 pub use self::serialization_errors::{ChunkSerializationError, ChunkSerializationErrorKind};
 pub use self::deserializer::{ChunkDeserializer};
-pub use self::serializer::{ChunkSerializer};
+pub use self::serializer::{ChunkSerializer, Packet};
 
 #[cfg(test)]
 mod tests {
@@ -16,7 +16,7 @@ mod tests {
     use ::time::RtmpTimestamp;
 
     #[test]
-    fn can_deserialize_messages_serialized_by_chunk_serilalizer_struct() {
+    fn can_deserialize_messages_serialized_by_chunk_serializer_struct() {
         let input1 = MessagePayload {
             timestamp: RtmpTimestamp::new(55),
             message_stream_id: 1,
@@ -39,14 +39,14 @@ mod tests {
         };
 
         let mut serializer = ChunkSerializer::new();
-        let bytes1 = serializer.serialize(&input1, false).unwrap();
-        let bytes2 = serializer.serialize(&input2, false).unwrap();
-        let bytes3 = serializer.serialize(&input3, false).unwrap();
+        let packet1 = serializer.serialize(&input1, false, false).unwrap();
+        let packet2 = serializer.serialize(&input2, false, false).unwrap();
+        let packet3 = serializer.serialize(&input3, false, false).unwrap();
 
         let mut deserializer = ChunkDeserializer::new();
-        let output1 = deserializer.get_next_message(&bytes1).unwrap().unwrap();
-        let output2 = deserializer.get_next_message(&bytes2).unwrap().unwrap();
-        let output3 = deserializer.get_next_message(&bytes3).unwrap().unwrap();
+        let output1 = deserializer.get_next_message(&packet1.bytes).unwrap().unwrap();
+        let output2 = deserializer.get_next_message(&packet2.bytes).unwrap().unwrap();
+        let output3 = deserializer.get_next_message(&packet3.bytes).unwrap().unwrap();
 
         assert_eq!(output1, input1, "First message was not deserialized as expected");
         assert_eq!(output2, input2, "Second message was not deserialized as expected");

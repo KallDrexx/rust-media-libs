@@ -14,7 +14,8 @@ pub struct ChunkHeader {
     pub timestamp_delta: u32,
     pub message_length: u32,
     pub message_type_id: u8,
-    pub message_stream_id: u32
+    pub message_stream_id: u32,
+    pub can_be_dropped: bool,
 }
 
 impl ChunkHeader {
@@ -25,7 +26,8 @@ impl ChunkHeader {
             timestamp_delta: 0,
             message_length: 0,
             message_type_id: 0,
-            message_stream_id: 0
+            message_stream_id: 0,
+            can_be_dropped: false,
         }
     }
 }
