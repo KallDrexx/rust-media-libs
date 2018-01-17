@@ -39,7 +39,7 @@ impl MessagePayload {
     }
 
     pub fn from_rtmp_message(message: RtmpMessage, timestamp: RtmpTimestamp, message_stream_id: u32) -> Result<MessagePayload, MessageSerializationError> {
-        let type_id = get_message_type_id(&message);
+        let type_id = message.get_message_type_id();
 
         let bytes = match message {
             RtmpMessage::Unknown { type_id: _, data }
@@ -82,22 +82,6 @@ impl MessagePayload {
             message_stream_id,
             timestamp
         })
-    }
-}
-
-fn get_message_type_id(message: &RtmpMessage) -> u8 {
-    match *message {
-        RtmpMessage::Unknown { type_id, data: _ } => type_id,
-        RtmpMessage::Abort { stream_id: _ } => 2_u8,
-        RtmpMessage::Acknowledgement { sequence_number: _ } => 3_u8,
-        RtmpMessage::Amf0Command { command_name: _, transaction_id: _, command_object: _, additional_arguments: _ } => 20_u8,
-        RtmpMessage::Amf0Data { values: _ } => 18_u8,
-        RtmpMessage::AudioData { data: _ } => 8_u8,
-        RtmpMessage::SetChunkSize { size: _ } => 1_u8,
-        RtmpMessage::SetPeerBandwidth { size: _, limit_type: _ } => 6_u8,
-        RtmpMessage::UserControl { event_type: _, stream_id: _, buffer_length: _, timestamp: _ } => 4_u8,
-        RtmpMessage::VideoData { data: _ } => 9_u8,
-        RtmpMessage::WindowAcknowledgement { size: _ } => 5_u8,
     }
 }
 

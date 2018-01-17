@@ -37,3 +37,25 @@ pub enum RtmpMessage {
     VideoData { data: Vec<u8> },
     WindowAcknowledgement { size: u32 }
 }
+
+impl RtmpMessage {
+    pub fn into_message_payload(self, timestamp: RtmpTimestamp, message_stream_id: u32) -> Result<MessagePayload, MessageSerializationError> {
+        MessagePayload::from_rtmp_message(self, timestamp, message_stream_id)
+    }
+
+    pub fn get_message_type_id(&self) -> u8 {
+        match *self {
+            RtmpMessage::Unknown { type_id, data: _ } => type_id,
+            RtmpMessage::Abort { stream_id: _ } => 2_u8,
+            RtmpMessage::Acknowledgement { sequence_number: _ } => 3_u8,
+            RtmpMessage::Amf0Command { command_name: _, transaction_id: _, command_object: _, additional_arguments: _ } => 20_u8,
+            RtmpMessage::Amf0Data { values: _ } => 18_u8,
+            RtmpMessage::AudioData { data: _ } => 8_u8,
+            RtmpMessage::SetChunkSize { size: _ } => 1_u8,
+            RtmpMessage::SetPeerBandwidth { size: _, limit_type: _ } => 6_u8,
+            RtmpMessage::UserControl { event_type: _, stream_id: _, buffer_length: _, timestamp: _ } => 4_u8,
+            RtmpMessage::VideoData { data: _ } => 9_u8,
+            RtmpMessage::WindowAcknowledgement { size: _ } => 5_u8,
+        }
+    }
+}

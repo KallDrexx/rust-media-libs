@@ -6,9 +6,11 @@
 
 mod server;
 
-pub use self::server::ServerSessionEvents;
+pub use self::server::ServerSessionEvent;
+pub use self::server::ServerSession;
 
 /// Contains the metadata information a stream may advertise on publishing
+#[derive(PartialEq, Debug, Clone)]
 pub struct StreamMetadata {
     video_width: Option<u32>,
     video_height: Option<u32>,

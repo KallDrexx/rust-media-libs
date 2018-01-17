@@ -4,7 +4,8 @@ use ::time::RtmpTimestamp;
 use ::sessions::StreamMetadata;
 
 /// An event that a server session can raise
-pub enum ServerSessionEvents {
+#[derive(Debug, PartialEq, Clone)]
+pub enum ServerSessionEvent {
     /// The client is changing the maximum size of the RTMP chunks they will be sending
     ClientChunkSizeChanged {
         new_chunk_size: u32,

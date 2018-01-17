@@ -15,6 +15,7 @@ const MAX_INITIAL_TIMESTAMP: u32 = 16777215;
 /// dropped if there is not enough bandwidth for the current bitrate.  This allows live video
 /// to be kept in real time and to prevent getting backed up when redistributing live video when
 /// the network conditions don't allow the current bitrate.
+#[derive(Debug, PartialEq)]
 pub struct Packet {
     pub bytes: Vec<u8>,
     pub can_be_dropped: bool
