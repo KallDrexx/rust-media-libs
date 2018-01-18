@@ -27,6 +27,10 @@ enum SessionState {
     Connected,
 }
 
+struct ActiveStream {
+
+}
+
 /// A session that represents the server side of a single RTMP connection.
 ///
 /// The `ServerSession` encapsulates the process of parsing RTMP chunks coming in from a client
@@ -55,6 +59,8 @@ pub struct ServerSession {
     current_state: SessionState,
     fms_version: String,
     object_encoding: f64,
+    active_streams: HashMap<u32, ActiveStream>,
+    next_stream_id: u32,
 }
 
 impl ServerSession {
@@ -75,6 +81,8 @@ impl ServerSession {
             current_state: SessionState::Started,
             fms_version: config.fms_version,
             object_encoding: 0.0,
+            active_streams: HashMap::new(),
+            next_stream_id: 1,
         };
 
         let mut results = Vec::with_capacity(4);
@@ -203,6 +211,7 @@ impl ServerSession {
         
         let results = match name.as_str() {
             "connect" => self.handle_command_connect(transaction_id, command_object)?,
+            "createStream" => self.handle_command_create_stream(transaction_id)?,
             _ => Vec::new(),
         };
 
@@ -246,6 +255,25 @@ impl ServerSession {
         };
 
         Ok(vec![ServerSessionResult::RaisedEvent(event)])
+    }
+
+    fn handle_command_create_stream(&mut self, transaction_id: f64) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        let new_stream_id = self.next_stream_id;
+        self.next_stream_id = self.next_stream_id + 1;
+
+        let new_stream = ActiveStream{};
+        self.active_streams.insert(new_stream_id, new_stream);
+
+        let message = RtmpMessage::Amf0Command {
+            command_name: "_result".to_string(),
+            transaction_id: transaction_id,
+            command_object: Amf0Value::Null,
+            additional_arguments: vec![Amf0Value::Number(new_stream_id as f64)]
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), new_stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok(vec![ServerSessionResult::OutboundResponse(packet)])
     }
 
     fn handle_amf0_data(&self, _data: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
@@ -461,6 +489,43 @@ mod tests {
         }
     }
 
+    #[test]
+    fn can_create_stream_on_connected_session() {
+        let config = get_basic_config();
+        let mut deserializer = ChunkDeserializer::new();
+        let mut serializer = ChunkSerializer::new();
+        let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+        consume_results(&mut deserializer, results);
+        perform_connection(&mut session, &mut serializer, &mut deserializer);
+
+        let message = RtmpMessage::Amf0Command {
+            command_name: "createStream".to_string(),
+            transaction_id: 4.0,
+            command_object: Amf0Value::Null,
+            additional_arguments: Vec::new()
+        };
+
+        let payload = message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+        let packet = serializer.serialize(&payload, true, false).unwrap();
+        let results = session.handle_input(&packet.bytes[..]).unwrap();
+        let (responses, _) = split_results(&mut deserializer, results);
+
+        assert_eq!(responses.len(), 1, "Unexpected number of responses returned");
+        match responses[0] {
+            RtmpMessage::Amf0Command {
+                ref command_name,
+                transaction_id,
+                command_object: Amf0Value::Null,
+                ref additional_arguments
+            } if command_name == "_result" && transaction_id == 4.0 => {
+                assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments in response");
+                assert_vec_match!(additional_arguments, Amf0Value::Number(x) if x > 0.0);
+            },
+
+            _ => panic!("First response was not the expected value: {:?}", responses[0]),
+        }
+    }
+
     fn get_basic_config() -> ServerSessionConfig {
         ServerSessionConfig {
             chunk_size: DEFAULT_CHUNK_SIZE,
@@ -519,5 +584,24 @@ mod tests {
         let timestamp = RtmpTimestamp::new(timestamp);
         let payload = message.into_message_payload(timestamp, stream_id).unwrap();
         payload
+    }
+
+    fn perform_connection(session: &mut ServerSession, serializer: &mut ChunkSerializer, deserializer: &mut ChunkDeserializer) {
+        let connect_payload = create_connect_message("some_app".to_string(), 15, 0, 0.0);
+        let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
+        let connect_results = session.handle_input(&connect_packet.bytes[..]).unwrap();
+        assert_eq!(connect_results.len(), 1, "Unexpected number of responses when handling connect request message");
+
+        let (_, events) = split_results(deserializer, connect_results);
+        assert_eq!(events.len(), 1, "Unexpected number of events returned");
+        let request_id = match events[0] {
+            ServerSessionEvent::ConnectionRequested {ref app_name, request_id} if app_name == "some_app" => request_id,
+            _ => panic!("First event was not as expected: {:?}", events[0]),
+        };
+
+        let results = session.accept_request(request_id).unwrap();
+        consume_results(deserializer, results);
+
+        // Assume it was successful
     }
 }
