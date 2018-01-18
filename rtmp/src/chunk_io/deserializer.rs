@@ -40,7 +40,7 @@ enum ParseStage {
     ExtendedTimestamp,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 enum ParseStageResult {
     Success,
     NotEnoughBytes

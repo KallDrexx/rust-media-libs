@@ -32,6 +32,14 @@ pub enum ServerSessionErrorKind {
     /// outstanding request.
     #[fail(display = "Attempted to accept or reject request id {} but no outstanding requests have that id", _0)]
     InvalidOutstandingRequest(u32),
+
+    /// A connection request was made without a valid RTMP app name
+    #[fail(display = "The connection request did not have a non-empty RTMP app name")]
+    NoAppNameForConnectionRequest,
+
+    /// The request id specified did not match an outstanding request
+    #[fail(display = "The request id specified could not be matched to an outstanding request")]
+    InvalidRequestId,
 }
 
 impl fmt::Display for ServerSessionError {

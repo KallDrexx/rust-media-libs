@@ -3,6 +3,7 @@ mod config;
 mod errors;
 mod result;
 
+use std::collections::HashMap;
 use std::time::SystemTime;
 use rml_amf0::Amf0Value;
 use ::chunk_io::{ChunkSerializer, ChunkDeserializer};
@@ -13,6 +14,18 @@ pub use self::errors::{ServerSessionError, ServerSessionErrorKind};
 pub use self::events::ServerSessionEvent;
 pub use self::config::ServerSessionConfig;
 pub use self::result::ServerSessionResult;
+
+enum OutstandingRequest {
+    ConnectionRequest{
+        app_name: String,
+        transaction_id: f64,
+    }
+}
+
+enum SessionState {
+    Started,
+    Connected,
+}
 
 /// A session that represents the server side of a single RTMP connection.
 ///
@@ -36,6 +49,12 @@ pub struct ServerSession {
     serializer: ChunkSerializer,
     deserializer: ChunkDeserializer,
     self_window_ack_size: u32,
+    connected_app_name: Option<String>,
+    outstanding_requests: HashMap<u32, OutstandingRequest>,
+    next_request_number: u32,
+    current_state: SessionState,
+    fms_version: String,
+    object_encoding: f64,
 }
 
 impl ServerSession {
@@ -50,6 +69,12 @@ impl ServerSession {
             serializer: ChunkSerializer::new(),
             deserializer: ChunkDeserializer::new(),
             self_window_ack_size: config.window_ack_size,
+            connected_app_name: None,
+            outstanding_requests: HashMap::new(),
+            next_request_number: 0,
+            current_state: SessionState::Started,
+            fms_version: config.fms_version,
+            object_encoding: 0.0,
         };
 
         let mut results = Vec::with_capacity(4);
@@ -148,8 +173,16 @@ impl ServerSession {
     }
 
     /// Tells the server session that it should accept an outstanding request
-    pub fn accept_request(&mut self, _request_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        unimplemented!()
+    pub fn accept_request(&mut self, request_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        let request = match self.outstanding_requests.remove(&request_id) {
+            Some(x) => x,
+            None => return Err(ServerSessionError{kind: ServerSessionErrorKind::InvalidRequestId}),
+        };
+
+        match request {
+            OutstandingRequest::ConnectionRequest {app_name, transaction_id}
+                => self.accept_connection_request(app_name, transaction_id),
+        }
     }
 
     /// Tells the server session that it should reject an outstanding request
@@ -165,9 +198,54 @@ impl ServerSession {
         Ok(Vec::new())
     }
 
-    fn handle_amf0_command(&self, _name: String, _transaction_id: f64, _command_object: Amf0Value, _additional_args: Vec<Amf0Value>)
+    fn handle_amf0_command(&mut self, name: String, transaction_id: f64, command_object: Amf0Value, _additional_args: Vec<Amf0Value>)
         -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        Ok(Vec::new())
+        
+        let results = match name.as_str() {
+            "connect" => self.handle_command_connect(transaction_id, command_object)?,
+            _ => Vec::new(),
+        };
+
+        Ok(results)
+    }
+
+    fn handle_command_connect(&mut self, transaction_id: f64, command_object: Amf0Value) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        let mut properties = match command_object {
+            Amf0Value::Object(properties) => properties,
+            _ => return Err(ServerSessionError{kind: ServerSessionErrorKind::NoAppNameForConnectionRequest}),
+        };
+
+        let app_name = match properties.remove("app") {
+            Some(value) => match value {
+                Amf0Value::Utf8String(app) => app,
+                _ => return Err(ServerSessionError{kind: ServerSessionErrorKind::NoAppNameForConnectionRequest}),
+            },
+            None => return Err(ServerSessionError{kind: ServerSessionErrorKind::NoAppNameForConnectionRequest}),
+        };
+
+        self.object_encoding = match properties.remove("objectEncoding") {
+            Some(value) => match value {
+                Amf0Value::Number(number) => number,
+                _ => 0.0,
+            },
+            None => 0.0,
+        };
+
+        let request = OutstandingRequest::ConnectionRequest {
+            app_name: app_name.clone(),
+            transaction_id,
+        };
+
+        let request_number = self.next_request_number;
+        self.next_request_number = self.next_request_number + 1;
+        self.outstanding_requests.insert(request_number, request);
+
+        let event = ServerSessionEvent::ConnectionRequested {
+            app_name: app_name,
+            request_id: request_number,
+        };
+
+        Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
     fn handle_amf0_data(&self, _data: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
@@ -178,7 +256,8 @@ impl ServerSession {
         Ok(Vec::new())
     }
 
-    fn handle_set_chunk_size(&self, _size: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+    fn handle_set_chunk_size(&mut self, size: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        self.deserializer.set_max_chunk_size(size as usize)?;
         Ok(Vec::new())
     }
 
@@ -197,6 +276,34 @@ impl ServerSession {
 
     fn handle_window_acknowledgement(&self, _size: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         Ok(Vec::new())
+    }
+
+    fn accept_connection_request(&mut self, app_name: String, transaction_id: f64) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        self.connected_app_name = Some(app_name.clone());
+        self.current_state = SessionState::Connected;
+
+        let mut command_object_properties = HashMap::new();
+        command_object_properties.insert("fmsVer".to_string(), Amf0Value::Utf8String(self.fms_version.clone()));
+        command_object_properties.insert("capabilities".to_string(), Amf0Value::Number(31.0));
+
+        let mut additional_properties = HashMap::new();
+        additional_properties.insert("level".to_string(), Amf0Value::Utf8String("status".to_string()));
+        additional_properties.insert("code".to_string(), Amf0Value::Utf8String("NetConnection.Connect.Success".to_string()));
+        additional_properties.insert("objectEncoding".to_string(), Amf0Value::Number(self.object_encoding));
+        additional_properties.insert("description".to_string(), Amf0Value::Utf8String("Successfully connected on app: ".to_string() + &app_name));
+
+        let message = RtmpMessage::Amf0Command {
+            command_name: "_result".to_string(),
+            transaction_id: transaction_id,
+            command_object: Amf0Value::Object(command_object_properties),
+            additional_arguments: vec![Amf0Value::Object(additional_properties)]
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), 0)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        
+        
+        Ok(vec![ServerSessionResult::OutboundResponse(packet)])
     }
     
     fn get_epoch(&self) -> RtmpTimestamp {
@@ -217,8 +324,9 @@ impl ServerSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use rml_amf0::Amf0Value;
-    use ::messages::{RtmpMessage, PeerBandwidthLimitType, UserControlEventType};
+    use ::messages::{RtmpMessage, PeerBandwidthLimitType, UserControlEventType, MessagePayload};
     use ::chunk_io::{ChunkDeserializer};
 
     const DEFAULT_CHUNK_SIZE: u32 = 1111;
@@ -229,9 +337,9 @@ mod tests {
     fn new_config_creates_initial_responses() {
         let config = get_basic_config();
         let mut deserializer = ChunkDeserializer::new();
-        let (_, results) = ServerSession::new(config).unwrap();
+        let (_, mut results) = ServerSession::new(config).unwrap();
 
-        let responses = get_rtmp_messages(&mut deserializer, &results);
+        let (responses, _) = split_results(&mut deserializer, &mut results);
 
         assert_vec_contains!(responses, &RtmpMessage::WindowAcknowledgement {size: DEFAULT_WINDOW_ACK_SIZE});
         assert_vec_contains!(responses, &RtmpMessage::SetPeerBandwidth {size: DEFAULT_PEER_BANDWIDTH, limit_type: PeerBandwidthLimitType::Dynamic});
@@ -253,6 +361,56 @@ mod tests {
         assert_eq!(&additional_values[..], &[Amf0Value::Number(8192_f64)], "onBWDone additional values were unexpected");
     }
 
+    #[test]
+    fn can_accept_connection_request() {
+        let config = get_basic_config();
+        let mut deserializer = ChunkDeserializer::new();
+        let mut serializer = ChunkSerializer::new();
+        let (mut session, mut initial_results) = ServerSession::new(config.clone()).unwrap();
+        consume_results(&mut deserializer, &mut initial_results);
+
+        let connect_payload = create_connect_message("some_app".to_string(), 15, 0, 0.0);
+        let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
+        let mut connect_results = session.handle_input(&connect_packet.bytes[..]).unwrap();
+        assert_eq!(connect_results.len(), 1, "Unexpected number of responses when handling connect request message");
+
+        let (_, events) = split_results(&mut deserializer, &mut connect_results);
+        assert_eq!(events.len(), 1, "Unexpected number of events returned");
+        let request_id = match events[0] {
+            ServerSessionEvent::ConnectionRequested {ref app_name, request_id} if app_name == "some_app" => request_id,
+            _ => panic!("First event was not as expected: {:?}", events[0]),
+        };
+
+        let mut accept_results = session.accept_request(request_id).unwrap();
+        assert_eq!(accept_results.len(), 1, "Unexpected number of results returned");
+
+        let (responses, _) = split_results(&mut deserializer, &mut accept_results);
+        match responses[0] {
+            RtmpMessage::Amf0Command {
+                ref command_name,
+                transaction_id: _,
+                command_object: Amf0Value::Object(ref properties),
+                ref additional_arguments
+            } if command_name == "_result" => {
+                assert_eq!(properties.get("fmsVer"), Some(&Amf0Value::Utf8String(config.fms_version)), "Unexpected fms version");
+                assert_eq!(properties.get("capabilities"), Some(&Amf0Value::Number(31.0)), "Unexpected capabilities value");
+                assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+                match additional_arguments[0] {
+                    Amf0Value::Object(ref properties) => {
+                        assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
+                        assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetConnection.Connect.Success".to_string())), "Unexpected code value");
+                        assert_eq!(properties.get("objectEncoding"), Some(&Amf0Value::Number(0.0)), "Unexpected object encoding value");
+                        assert!(properties.contains_key("description"), "No description provided");
+                    },
+
+                    _ => panic!("Additional arguments was not an Amf0 object: {:?}", additional_arguments[0]),
+                }
+            },
+
+            _ => panic!("Unexpected first response message: {:?}", responses[0]),
+        }
+    }
+
     fn get_basic_config() -> ServerSessionConfig {
         ServerSessionConfig {
             chunk_size: DEFAULT_CHUNK_SIZE,
@@ -262,19 +420,54 @@ mod tests {
         }
     }
 
-    fn get_rtmp_messages(deserializer: &mut ChunkDeserializer, results: &Vec<ServerSessionResult>) -> Vec<RtmpMessage> {
+    fn split_results(deserializer: &mut ChunkDeserializer, results: &mut Vec<ServerSessionResult>) -> (Vec<RtmpMessage>, Vec<ServerSessionEvent>) {
         let mut responses = Vec::new();
-        for result in results.iter() {
-            match *result {
-                ServerSessionResult::OutboundResponse(ref packet) => {
+        let mut events = Vec::new();
+
+        for result in results.drain(..) {
+            match result {
+                ServerSessionResult::OutboundResponse(packet) => {
                     let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
                     let message = payload.to_rtmp_message().unwrap();
+                    match message {
+                        RtmpMessage::SetChunkSize{size} => deserializer.set_max_chunk_size(size as usize).unwrap(),
+                        _ => (),
+                    }
+
+                    println!("response received from server: {:?}", message);
                     responses.push(message);
-                }
+                },
+
+                ServerSessionResult::RaisedEvent(event) => {
+                    events.push(event);
+                },
+
                 _ => (),
-            };
+            }
         }
 
-        responses
+        (responses, events)
+    }
+
+    fn consume_results(deserializer: &mut ChunkDeserializer, results: &mut Vec<ServerSessionResult>) {
+        // Needed to keep the deserializer up to date
+        split_results(deserializer, results);
+    }
+
+    fn create_connect_message(app_name: String, timestamp: u32, stream_id: u32, object_encoding: f64) -> MessagePayload {
+        let mut properties = HashMap::new();
+        properties.insert("app".to_string(), Amf0Value::Utf8String(app_name));
+        properties.insert("objectEncoding".to_string(), Amf0Value::Number(object_encoding));
+
+        let message = RtmpMessage::Amf0Command {
+            command_name: "connect".to_string(),
+            transaction_id: 1.0,
+            command_object: Amf0Value::Object(properties),
+            additional_arguments: vec![]
+        };
+
+        let timestamp = RtmpTimestamp::new(timestamp);
+        let payload = message.into_message_payload(timestamp, stream_id).unwrap();
+        payload
     }
 }
