@@ -337,9 +337,9 @@ mod tests {
     fn new_config_creates_initial_responses() {
         let config = get_basic_config();
         let mut deserializer = ChunkDeserializer::new();
-        let (_, mut results) = ServerSession::new(config).unwrap();
+        let (_, results) = ServerSession::new(config).unwrap();
 
-        let (responses, _) = split_results(&mut deserializer, &mut results);
+        let (responses, _) = split_results(&mut deserializer, results);
 
         assert_vec_contains!(responses, &RtmpMessage::WindowAcknowledgement {size: DEFAULT_WINDOW_ACK_SIZE});
         assert_vec_contains!(responses, &RtmpMessage::SetPeerBandwidth {size: DEFAULT_PEER_BANDWIDTH, limit_type: PeerBandwidthLimitType::Dynamic});
@@ -366,25 +366,25 @@ mod tests {
         let config = get_basic_config();
         let mut deserializer = ChunkDeserializer::new();
         let mut serializer = ChunkSerializer::new();
-        let (mut session, mut initial_results) = ServerSession::new(config.clone()).unwrap();
-        consume_results(&mut deserializer, &mut initial_results);
+        let (mut session, initial_results) = ServerSession::new(config.clone()).unwrap();
+        consume_results(&mut deserializer, initial_results);
 
         let connect_payload = create_connect_message("some_app".to_string(), 15, 0, 0.0);
         let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
-        let mut connect_results = session.handle_input(&connect_packet.bytes[..]).unwrap();
+        let connect_results = session.handle_input(&connect_packet.bytes[..]).unwrap();
         assert_eq!(connect_results.len(), 1, "Unexpected number of responses when handling connect request message");
 
-        let (_, events) = split_results(&mut deserializer, &mut connect_results);
+        let (_, events) = split_results(&mut deserializer, connect_results);
         assert_eq!(events.len(), 1, "Unexpected number of events returned");
         let request_id = match events[0] {
             ServerSessionEvent::ConnectionRequested {ref app_name, request_id} if app_name == "some_app" => request_id,
             _ => panic!("First event was not as expected: {:?}", events[0]),
         };
 
-        let mut accept_results = session.accept_request(request_id).unwrap();
+        let accept_results = session.accept_request(request_id).unwrap();
         assert_eq!(accept_results.len(), 1, "Unexpected number of results returned");
 
-        let (responses, _) = split_results(&mut deserializer, &mut accept_results);
+        let (responses, _) = split_results(&mut deserializer, accept_results);
         match responses[0] {
             RtmpMessage::Amf0Command {
                 ref command_name,
@@ -411,6 +411,56 @@ mod tests {
         }
     }
 
+    #[test]
+    fn accepted_connection_responds_with_same_object_encoding_value_as_connection_request() {
+        let config = get_basic_config();
+        let mut deserializer = ChunkDeserializer::new();
+        let mut serializer = ChunkSerializer::new();
+        let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+        consume_results(&mut deserializer, results);
+
+        let connect_payload = create_connect_message("some_app".to_string(), 15, 0, 3.0);
+        let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
+        let connect_results = session.handle_input(&connect_packet.bytes[..]).unwrap();
+        assert_eq!(connect_results.len(), 1, "Unexpected number of responses when handling connect request message");
+
+        let (_, events) = split_results(&mut deserializer, connect_results);
+        assert_eq!(events.len(), 1, "Unexpected number of events returned");
+        let request_id = match events[0] {
+            ServerSessionEvent::ConnectionRequested {ref app_name, request_id} if app_name == "some_app" => request_id,
+            _ => panic!("First event was not as expected: {:?}", events[0]),
+        };
+
+        let accept_results = session.accept_request(request_id).unwrap();
+        assert_eq!(accept_results.len(), 1, "Unexpected number of results returned");
+
+        let (responses, _) = split_results(&mut deserializer, accept_results);
+        match responses[0] {
+            RtmpMessage::Amf0Command {
+                ref command_name,
+                transaction_id: _,
+                command_object: Amf0Value::Object(ref properties),
+                ref additional_arguments
+            } if command_name == "_result" => {
+                assert_eq!(properties.get("fmsVer"), Some(&Amf0Value::Utf8String(config.fms_version)), "Unexpected fms version");
+                assert_eq!(properties.get("capabilities"), Some(&Amf0Value::Number(31.0)), "Unexpected capabilities value");
+                assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+                match additional_arguments[0] {
+                    Amf0Value::Object(ref properties) => {
+                        assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
+                        assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetConnection.Connect.Success".to_string())), "Unexpected code value");
+                        assert_eq!(properties.get("objectEncoding"), Some(&Amf0Value::Number(3.0)), "Unexpected object encoding value");
+                        assert!(properties.contains_key("description"), "No description provided");
+                    },
+
+                    _ => panic!("Additional arguments was not an Amf0 object: {:?}", additional_arguments[0]),
+                }
+            },
+
+            _ => panic!("Unexpected first response message: {:?}", responses[0]),
+        }
+    }
+
     fn get_basic_config() -> ServerSessionConfig {
         ServerSessionConfig {
             chunk_size: DEFAULT_CHUNK_SIZE,
@@ -420,7 +470,7 @@ mod tests {
         }
     }
 
-    fn split_results(deserializer: &mut ChunkDeserializer, results: &mut Vec<ServerSessionResult>) -> (Vec<RtmpMessage>, Vec<ServerSessionEvent>) {
+    fn split_results(deserializer: &mut ChunkDeserializer, mut results: Vec<ServerSessionResult>) -> (Vec<RtmpMessage>, Vec<ServerSessionEvent>) {
         let mut responses = Vec::new();
         let mut events = Vec::new();
 
@@ -449,7 +499,7 @@ mod tests {
         (responses, events)
     }
 
-    fn consume_results(deserializer: &mut ChunkDeserializer, results: &mut Vec<ServerSessionResult>) {
+    fn consume_results(deserializer: &mut ChunkDeserializer, results: Vec<ServerSessionResult>) {
         // Needed to keep the deserializer up to date
         split_results(deserializer, results);
     }
