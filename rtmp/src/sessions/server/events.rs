@@ -2,6 +2,7 @@ use std::time::{SystemTime};
 use rml_amf0::Amf0Value;
 use ::time::RtmpTimestamp;
 use ::sessions::StreamMetadata;
+use super::PublishMode;
 
 /// An event that a server session can raise
 #[derive(Debug, PartialEq, Clone)]
@@ -29,7 +30,7 @@ pub enum ServerSessionEvent {
         request_id: u32,
         app_name: String,
         stream_key: String,
-        stream_id: u32,
+        mode: PublishMode,
     },
 
     /// The client is finished publishing on the specified stream key
@@ -66,7 +67,7 @@ pub enum ServerSessionEvent {
     /// The client sent an Amf0 command that was not able to be handled
     UnhandleableAmf0Command {
         command_name: String,
-        transaction_id: u32,
+        transaction_id: f64,
         command_object: Amf0Value,
         additional_values: Vec<Amf0Value>,
     },

@@ -40,6 +40,13 @@ pub enum ServerSessionErrorKind {
     /// The request id specified did not match an outstanding request
     #[fail(display = "The request id specified could not be matched to an outstanding request")]
     InvalidRequestId,
+
+    /// An action was attempted to be performed on a inactive stream
+    #[fail(display = "The '{}' action was attempted on non-existant stream id {}", action, stream_id)]
+    ActionAttemptedOnInactiveStream {
+        action: String,
+        stream_id: u32,
+    }
 }
 
 impl fmt::Display for ServerSessionError {

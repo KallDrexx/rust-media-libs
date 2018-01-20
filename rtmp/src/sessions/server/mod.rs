@@ -1,35 +1,27 @@
-mod events;
+mod active_stream;
 mod config;
 mod errors;
+mod events;
+mod outstanding_requests;
+mod publish_mode;
 mod result;
+mod session_state;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
 use rml_amf0::Amf0Value;
-use ::chunk_io::{ChunkSerializer, ChunkDeserializer};
+use ::chunk_io::{ChunkSerializer, ChunkDeserializer, Packet};
 use ::messages::{RtmpMessage, UserControlEventType, PeerBandwidthLimitType};
 use ::time::RtmpTimestamp;
+use self::active_stream::{ActiveStream, StreamState};
+use self::outstanding_requests::OutstandingRequest;
+use self::session_state::SessionState;
 
 pub use self::errors::{ServerSessionError, ServerSessionErrorKind};
-pub use self::events::ServerSessionEvent;
 pub use self::config::ServerSessionConfig;
+pub use self::events::ServerSessionEvent;
+pub use self::publish_mode::PublishMode;
 pub use self::result::ServerSessionResult;
-
-enum OutstandingRequest {
-    ConnectionRequest{
-        app_name: String,
-        transaction_id: f64,
-    }
-}
-
-enum SessionState {
-    Started,
-    Connected,
-}
-
-struct ActiveStream {
-
-}
 
 /// A session that represents the server side of a single RTMP connection.
 ///
@@ -145,7 +137,7 @@ impl ServerSession {
                             => self.handle_acknowledgement_message(sequence_number)?,
 
                         RtmpMessage::Amf0Command{command_name, transaction_id, command_object, additional_arguments}
-                            => self.handle_amf0_command(command_name, transaction_id, command_object, additional_arguments)?,
+                            => self.handle_amf0_command(payload.message_stream_id, command_name, transaction_id, command_object, additional_arguments)?,
 
                         RtmpMessage::Amf0Data{values}
                             => self.handle_amf0_data(values)?,
@@ -190,6 +182,9 @@ impl ServerSession {
         match request {
             OutstandingRequest::ConnectionRequest {app_name, transaction_id}
                 => self.accept_connection_request(app_name, transaction_id),
+
+            OutstandingRequest::PublishRequested {stream_key, mode, stream_id}
+                => self.accept_publish_request(stream_id, stream_key, mode),
         }
     }
 
@@ -206,13 +201,23 @@ impl ServerSession {
         Ok(Vec::new())
     }
 
-    fn handle_amf0_command(&mut self, name: String, transaction_id: f64, command_object: Amf0Value, _additional_args: Vec<Amf0Value>)
-        -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        
+    fn handle_amf0_command(&mut self,
+                           stream_id: u32,
+                           name: String,
+                           transaction_id: f64,
+                           command_object: Amf0Value,
+                           additional_args: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         let results = match name.as_str() {
             "connect" => self.handle_command_connect(transaction_id, command_object)?,
             "createStream" => self.handle_command_create_stream(transaction_id)?,
-            _ => Vec::new(),
+            "publish" => self.handle_command_publish(stream_id, transaction_id, additional_args)?,
+
+            _ => vec![ServerSessionResult::RaisedEvent(ServerSessionEvent::UnhandleableAmf0Command {
+                command_name: name,
+                additional_values: additional_args,
+                transaction_id,
+                command_object,
+            })],
         };
 
         Ok(results)
@@ -261,19 +266,83 @@ impl ServerSession {
         let new_stream_id = self.next_stream_id;
         self.next_stream_id = self.next_stream_id + 1;
 
-        let new_stream = ActiveStream{};
+        let new_stream = ActiveStream{
+            current_state: StreamState::Created,
+        };
         self.active_streams.insert(new_stream_id, new_stream);
 
-        let message = RtmpMessage::Amf0Command {
-            command_name: "_result".to_string(),
-            transaction_id: transaction_id,
-            command_object: Amf0Value::Null,
-            additional_arguments: vec![Amf0Value::Number(new_stream_id as f64)]
+        let packet = self.create_success_response(transaction_id,
+            Amf0Value::Null,
+            vec![Amf0Value::Number(new_stream_id as f64)],
+            new_stream_id)?;
+
+        Ok(vec![ServerSessionResult::OutboundResponse(packet)])
+    }
+
+    fn handle_command_publish(&mut self, stream_id: u32, transaction_id: f64, mut arguments: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        if arguments.len() < 2 {
+            let packet = self.create_error_packet("NetStream.Publish.Start", "Invalid publish arguments", transaction_id, stream_id)?;
+            return Ok(vec![ServerSessionResult::OutboundResponse(packet)]);
+        }
+
+        if self.current_state != SessionState::Connected || self.connected_app_name.is_none() {
+            let packet = self.create_error_packet("NetStream.Publish.Start", "Can't publish before connecting", transaction_id, stream_id)?;
+            return Ok(vec![ServerSessionResult::OutboundResponse(packet)]);
+        }
+
+        let stream_key = match arguments.remove(0) {
+            Amf0Value::Utf8String(stream_key) => stream_key,
+            _ => {
+                let packet = self.create_error_packet("NetStream.Publish.Start", "Invalid publish arguments", transaction_id, stream_id)?;
+                return Ok(vec![ServerSessionResult::OutboundResponse(packet)]);
+            },
         };
 
-        let payload = message.into_message_payload(self.get_epoch(), new_stream_id)?;
-        let packet = self.serializer.serialize(&payload, false, false)?;
-        Ok(vec![ServerSessionResult::OutboundResponse(packet)])
+        let mode = match arguments.remove(0) {
+            Amf0Value::Utf8String(raw_mode) => {
+                match raw_mode.as_ref() {
+                    "live" => PublishMode::Live,
+                    "append" => PublishMode::Append,
+                    "record" => PublishMode::Record,
+                    _ => {
+                        let error_properties = create_status_object("error", "NetStream.Publish.Start", "Invalid publish mode given");
+                        let packet = self.create_error_response(transaction_id,
+                                                                Amf0Value::Null,
+                                                                vec![Amf0Value::Object(error_properties)],
+                                                                stream_id)?;
+
+                        return Ok(vec![ServerSessionResult::OutboundResponse(packet)]);
+                    }
+                }
+            },
+
+            _ => {
+                let packet = self.create_error_packet("NetStream.Publish.Start", "Invalid publish arguments", transaction_id, stream_id)?;
+                return Ok(vec![ServerSessionResult::OutboundResponse(packet)]);
+            },
+        };
+
+        let request = OutstandingRequest::PublishRequested {
+            stream_key: stream_key.clone(),
+            mode: mode.clone(),
+            stream_id
+        };
+
+        let request_number = self.next_request_number;
+        self.next_request_number = self.next_request_number + 1;
+        self.outstanding_requests.insert(request_number, request);
+
+        let event = ServerSessionEvent::PublishStreamRequested {
+            app_name: match self.connected_app_name {
+                Some(ref name) => name.clone(),
+                None => unreachable!(), // unreachable due to if check above
+            },
+            request_id: request_number,
+            stream_key,
+            mode,
+        };
+
+        Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
     fn handle_amf0_data(&self, _data: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
@@ -314,11 +383,9 @@ impl ServerSession {
         command_object_properties.insert("fmsVer".to_string(), Amf0Value::Utf8String(self.fms_version.clone()));
         command_object_properties.insert("capabilities".to_string(), Amf0Value::Number(31.0));
 
-        let mut additional_properties = HashMap::new();
-        additional_properties.insert("level".to_string(), Amf0Value::Utf8String("status".to_string()));
-        additional_properties.insert("code".to_string(), Amf0Value::Utf8String("NetConnection.Connect.Success".to_string()));
+        let description = "Successfully connected on app: ".to_string() + &app_name;
+        let mut additional_properties = create_status_object("status", "NetConnection.Connect.Success", description.as_ref());
         additional_properties.insert("objectEncoding".to_string(), Amf0Value::Number(self.object_encoding));
-        additional_properties.insert("description".to_string(), Amf0Value::Utf8String("Successfully connected on app: ".to_string() + &app_name));
 
         let message = RtmpMessage::Amf0Command {
             command_name: "_result".to_string(),
@@ -333,7 +400,74 @@ impl ServerSession {
         
         Ok(vec![ServerSessionResult::OutboundResponse(packet)])
     }
-    
+
+    fn accept_publish_request(&mut self, stream_id: u32, stream_key: String, mode: PublishMode) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        match self.active_streams.get_mut(&stream_id) {
+            Some(active_stream) => {
+                active_stream.current_state = StreamState::Publishing {
+                    stream_key: stream_key.clone(),
+                    mode,
+                };
+            },
+
+            None => return Err(ServerSessionError {
+                kind: ServerSessionErrorKind::ActionAttemptedOnInactiveStream {
+                    action: "publish".to_string(),
+                    stream_id,
+                }
+            }),
+        };
+
+        let description = format!("Successfully started publishing on stream key {}", stream_key);
+        let status_object = create_status_object("status", "NetStream.Publish.Start", description.as_ref());
+        let message = RtmpMessage::Amf0Command {
+            command_name: "onStatus".to_string(),
+            transaction_id: 0.0,
+            command_object: Amf0Value::Null,
+            additional_arguments: vec![Amf0Value::Object(status_object)]
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok(vec![ServerSessionResult::OutboundResponse(packet)])
+    }
+
+    fn create_success_response(&mut self,
+        transaction_id: f64,
+        command_object: Amf0Value,
+        additional_arguments: Vec<Amf0Value>,
+        stream_id: u32) -> Result<Packet, ServerSessionError> {
+
+        let message = RtmpMessage::Amf0Command {
+            command_name: "_result".to_string(),
+            transaction_id,
+            command_object,
+            additional_arguments
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok(packet)
+    }
+
+    fn create_error_response(&mut self,
+        transaction_id: f64,
+        command_object: Amf0Value,
+        additional_arguments: Vec<Amf0Value>,
+        stream_id: u32) -> Result<Packet, ServerSessionError> {
+
+        let message = RtmpMessage::Amf0Command {
+            command_name: "_error".to_string(),
+            transaction_id,
+            command_object,
+            additional_arguments
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok(packet)
+    }
+
     fn get_epoch(&self) -> RtmpTimestamp {
         match self.start_time.elapsed() {
             Ok(duration) => {
@@ -347,6 +481,20 @@ impl ServerSession {
             Err(_) => RtmpTimestamp::new(0), // Time went backwards, so just consider time as at epoch
         }
     }
+
+    fn create_error_packet(&mut self, code: &str, description: &str, transaction_id: f64, stream_id: u32) -> Result<Packet, ServerSessionError> {
+        let status_object = create_status_object("_error", code, description);
+        let packet = self.create_error_response(transaction_id, Amf0Value::Null, vec![Amf0Value::Object(status_object)], stream_id)?;
+        Ok(packet)
+    }
+}
+
+fn create_status_object(level: &str, code: &str, description: &str) -> HashMap<String, Amf0Value> {
+    let mut properties = HashMap::new();
+    properties.insert("level".to_string(), Amf0Value::Utf8String(level.to_string()));
+    properties.insert("code".to_string(), Amf0Value::Utf8String(code.to_string()));
+    properties.insert("description".to_string(), Amf0Value::Utf8String(description.to_string()));
+    properties
 }
 
 #[cfg(test)]
@@ -526,6 +674,73 @@ mod tests {
         }
     }
 
+    #[test]
+    fn can_accept_live_publishing_to_requested_stream_key() {
+        let config = get_basic_config();
+        let mut deserializer = ChunkDeserializer::new();
+        let mut serializer = ChunkSerializer::new();
+        let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+        consume_results(&mut deserializer, results);
+        perform_connection(&mut session, &mut serializer, &mut deserializer);
+
+        let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+        let message = RtmpMessage::Amf0Command {
+            command_name: "publish".to_string(),
+            transaction_id: 5.0,
+            command_object: Amf0Value::Null,
+            additional_arguments: vec![
+                Amf0Value::Utf8String("stream_key".to_string()),
+                Amf0Value::Utf8String("live".to_string()),
+            ]
+        };
+
+        let publish_payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+        let publish_packet = serializer.serialize(&publish_payload, false, false).unwrap();
+        let publish_results = session.handle_input(&publish_packet.bytes[..]).unwrap();
+        let (_, events) = split_results(&mut deserializer, publish_results);
+
+        assert_eq!(events.len(), 1, "Unexpected number of events returned");
+        let request_id = match events[0] {
+            ServerSessionEvent::PublishStreamRequested {
+                ref app_name,
+                ref stream_key,
+                request_id: returned_request_id,
+                mode: PublishMode::Live,
+            } if app_name == "some_app" && stream_key == "stream_key" => {
+                returned_request_id
+            },
+
+            _ => panic!("Unexpected first event found: {:?}", events[0]),
+        };
+
+        let accept_results = session.accept_request(request_id).unwrap();
+        let (responses, _) = split_results(&mut deserializer, accept_results);
+        assert_eq!(responses.len(), 1, "Unexpected number of responses received");
+
+        match responses[0] {
+            RtmpMessage::Amf0Command {
+                ref command_name,
+                transaction_id,
+                command_object: Amf0Value::Null,
+                ref additional_arguments
+            } if command_name == "onStatus" && transaction_id == 0.0 => {
+                assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+
+                match additional_arguments[0] {
+                    Amf0Value::Object(ref properties) => {
+                        assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
+                        assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetStream.Publish.Start".to_string())), "Unexpected code value");
+                        assert!(properties.contains_key("description"), "No description was included");
+                    },
+
+                    _ => panic!("Unexpected first additional argument received: {:?}", additional_arguments[0]),
+                }
+            },
+
+            _ => panic!("Unexpected first response: {:?}", responses[0]),
+        }
+    }
+
     fn get_basic_config() -> ServerSessionConfig {
         ServerSessionConfig {
             chunk_size: DEFAULT_CHUNK_SIZE,
@@ -554,6 +769,7 @@ mod tests {
                 },
 
                 ServerSessionResult::RaisedEvent(event) => {
+                    println!("event received from server: {:?}", event);
                     events.push(event);
                 },
 
@@ -603,5 +819,37 @@ mod tests {
         consume_results(deserializer, results);
 
         // Assume it was successful
+    }
+
+    fn create_active_stream(session: &mut ServerSession, serializer: &mut ChunkSerializer, deserializer: &mut ChunkDeserializer) -> u32 {
+        let message = RtmpMessage::Amf0Command {
+            command_name: "createStream".to_string(),
+            transaction_id: 4.0,
+            command_object: Amf0Value::Null,
+            additional_arguments: Vec::new()
+        };
+
+        let payload = message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+        let packet = serializer.serialize(&payload, true, false).unwrap();
+        let results = session.handle_input(&packet.bytes[..]).unwrap();
+        let (responses, _) = split_results(deserializer, results);
+
+        assert_eq!(responses.len(), 1, "Unexpected number of responses returned");
+        match responses[0] {
+            RtmpMessage::Amf0Command {
+                ref command_name,
+                transaction_id,
+                command_object: Amf0Value::Null,
+                ref additional_arguments
+            } if command_name == "_result" && transaction_id == 4.0 => {
+                assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments in response");
+                match additional_arguments[0] {
+                    Amf0Value::Number(x) => return x as u32,
+                    _ => panic!("First additional argument was not an Amf0Value::Number"),
+                }
+            },
+
+            _ => panic!("First response was not the expected value: {:?}", responses[0]),
+        }
     }
 }
