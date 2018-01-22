@@ -50,6 +50,36 @@ pub enum Amf0Value {
     Null,
 }
 
+impl Amf0Value {
+    pub fn get_number(self) -> Option<f64> {
+        match self {
+            Amf0Value::Number(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn get_boolean(self) -> Option<bool> {
+        match self {
+            Amf0Value::Boolean(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn get_string(self) -> Option<String> {
+        match self {
+            Amf0Value::Utf8String(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn get_object_properties(self) -> Option<HashMap<String, Amf0Value>> {
+        match self {
+            Amf0Value::Object(properties) => Some(properties),
+            _ => None,
+        }
+    }
+}
+
 mod markers {
     pub const NUMBER_MARKER: u8 = 0;
     pub const BOOLEAN_MARKER: u8 = 1;

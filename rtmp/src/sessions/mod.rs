@@ -24,3 +24,21 @@ pub struct StreamMetadata {
     audio_is_stereo: Option<bool>,
     encoder: Option<String>
 }
+
+impl StreamMetadata {
+    fn new() -> StreamMetadata {
+        StreamMetadata {
+            video_width: None,
+            video_height: None,
+            video_codec: None,
+            video_frame_rate: None,
+            video_bitrate_kbps: None,
+            audio_codec: None,
+            audio_bitrate_kbps: None,
+            audio_sample_rate: None,
+            audio_channels: None,
+            audio_is_stereo: None,
+            encoder: None
+        }
+    }
+}

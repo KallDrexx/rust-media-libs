@@ -12,6 +12,7 @@ use std::time::SystemTime;
 use rml_amf0::Amf0Value;
 use ::chunk_io::{ChunkSerializer, ChunkDeserializer, Packet};
 use ::messages::{RtmpMessage, UserControlEventType, PeerBandwidthLimitType};
+use ::sessions::{StreamMetadata};
 use ::time::RtmpTimestamp;
 use self::active_stream::{ActiveStream, StreamState};
 use self::outstanding_requests::OutstandingRequest;
@@ -140,7 +141,7 @@ impl ServerSession {
                             => self.handle_amf0_command(payload.message_stream_id, command_name, transaction_id, command_object, additional_arguments)?,
 
                         RtmpMessage::Amf0Data{values}
-                            => self.handle_amf0_data(values)?,
+                            => self.handle_amf0_data(values, payload.message_stream_id)?,
 
                         RtmpMessage::AudioData{data}
                             => self.handle_audio_data(data)?,
@@ -345,8 +346,64 @@ impl ServerSession {
         Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
-    fn handle_amf0_data(&self, _data: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        Ok(Vec::new())
+    fn handle_amf0_data(&mut self, mut data: Vec<Amf0Value>, stream_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        if data.len() == 0 {
+            // No data so just do nothing
+            return Ok(Vec::new());
+        }
+
+        let first_element = data.remove(0);
+        match first_element {
+            Amf0Value::Utf8String(ref value) if value == "@setDataFrame" => self.handle_amf0_data_set_data_frame(data, stream_id),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    fn handle_amf0_data_set_data_frame(&mut self, mut data: Vec<Amf0Value>, stream_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        if data.len() < 2 {
+            // We are expecting a "onMetaData" value and then a property with the actual metadata.  Since
+            // this wasn't provided we don't know how to deal with this message.
+        }
+
+        match data[0] {
+            Amf0Value::Utf8String(ref value) if value == "onMetaData" => (),
+            _ => return Ok(Vec::new()),
+        }
+
+        if self.connected_app_name.is_none() {
+            return Ok(Vec::new()); // setDataFrame has no meaning until they are conneted and publishing
+        }
+
+        let publish_stream_key = match self.active_streams.get(&stream_id) {
+            Some(ref stream) => {
+                match stream.current_state {
+                    StreamState::Publishing{ref stream_key, mode: _} => stream_key,
+                    _ => return Ok(Vec::new()), // Return nothing since we aren't publishing
+                }
+            },
+
+            None => return Ok(Vec::new()), // Return nothing since this was not sent on an active stream
+        };
+
+        let mut metadata = StreamMetadata::new();
+        let object = data.remove(1);
+        let properties_option = object.get_object_properties();
+        match properties_option {
+            Some(properties) => apply_metadata_values(&mut metadata, properties),
+            _ => (),
+        }
+
+        let event = ServerSessionEvent::StreamMetadataChanged {
+            app_name: match self.connected_app_name {
+                Some(ref name) => name.clone(),
+                None => unreachable!(), // unreachable due to if check above
+            },
+
+            stream_key: publish_stream_key.clone(),
+            metadata,
+        };
+
+        Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
     fn handle_audio_data(&self, _data: Vec<u8>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
@@ -497,6 +554,69 @@ fn create_status_object(level: &str, code: &str, description: &str) -> HashMap<S
     properties
 }
 
+fn apply_metadata_values(metadata: &mut StreamMetadata, mut properties: HashMap<String, Amf0Value>) {
+    for (key, value) in properties.drain() {
+        match key.as_ref() {
+            "width" => match value.get_number() { 
+                Some(x) => metadata.video_width = Some(x as u32),
+                None => (),
+            },
+
+            "height" => match value.get_number() {
+                Some(x) => metadata.video_height = Some(x as u32),
+                None => (),
+            },
+
+            "videocodecid" => match value.get_string() {
+                Some(x) => metadata.video_codec = Some(x),
+                None => (),
+            },
+
+            "videodatarate" => match value.get_number() {
+                Some(x) => metadata.video_bitrate_kbps = Some(x as u32),
+                None => (),
+            },
+
+            "framerate" => match value.get_number() {
+                Some(x) => metadata.video_frame_rate = Some(x as f32),
+                None => (),
+            },
+
+            "audiocodecid" => match value.get_string() {
+                Some(x) => metadata.audio_codec = Some(x),
+                None => (),
+            },
+
+            "audiodatarate" => match value.get_number() {
+                Some(x) => metadata.audio_bitrate_kbps = Some(x as u32),
+                None => (),
+            },
+
+            "audiosamplerate" => match value.get_number() {
+                Some(x) => metadata.audio_sample_rate = Some(x as u32),
+                None => (),
+            },
+
+            "audiochannels" => match value.get_number() {
+                Some(x) => metadata.audio_channels = Some(x as u32),
+                None => (),
+            },
+
+            "stereo" => match value.get_boolean() {
+                Some(x) => metadata.audio_is_stereo = Some(x),
+                None => (),
+            },
+
+            "encoder" => match value.get_string() {
+                Some(x) => metadata.encoder = Some(x),
+                None => (),
+            },
+
+            _ => (),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -644,7 +764,7 @@ mod tests {
         let mut serializer = ChunkSerializer::new();
         let (mut session, results) = ServerSession::new(config.clone()).unwrap();
         consume_results(&mut deserializer, results);
-        perform_connection(&mut session, &mut serializer, &mut deserializer);
+        perform_connection("some_app", &mut session, &mut serializer, &mut deserializer);
 
         let message = RtmpMessage::Amf0Command {
             command_name: "createStream".to_string(),
@@ -681,7 +801,7 @@ mod tests {
         let mut serializer = ChunkSerializer::new();
         let (mut session, results) = ServerSession::new(config.clone()).unwrap();
         consume_results(&mut deserializer, results);
-        perform_connection(&mut session, &mut serializer, &mut deserializer);
+        perform_connection("some_app", &mut session, &mut serializer, &mut deserializer);
 
         let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
         let message = RtmpMessage::Amf0Command {
@@ -738,6 +858,70 @@ mod tests {
             },
 
             _ => panic!("Unexpected first response: {:?}", responses[0]),
+        }
+    }
+
+    #[test]
+    fn can_receive_and_raise_event_for_metadata_from_obs() {
+        let config = get_basic_config();
+        let test_app_name = "some_app".to_string();
+        let test_stream_key = "stream_key".to_string();
+
+        let mut deserializer = ChunkDeserializer::new();
+        let mut serializer = ChunkSerializer::new();
+        let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+        consume_results(&mut deserializer, results);
+        perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+        let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+        start_publishing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+        let mut properties = HashMap::new();
+        properties.insert("width".to_string(), Amf0Value::Number(1920_f64));
+        properties.insert("height".to_string(), Amf0Value::Number(1080_f64));
+        properties.insert("videocodecid".to_string(), Amf0Value::Utf8String("avc1".to_string()));
+        properties.insert("videodatarate".to_string(), Amf0Value::Number(1200_f64));
+        properties.insert("framerate".to_string(), Amf0Value::Number(30_f64));
+        properties.insert("audiocodecid".to_string(), Amf0Value::Utf8String("mp4a".to_string()));
+        properties.insert("audiodatarate".to_string(), Amf0Value::Number(96_f64));
+        properties.insert("audiosamplerate".to_string(), Amf0Value::Number(48000_f64));
+        properties.insert("audiosamplesize".to_string(), Amf0Value::Number(16_f64));
+        properties.insert("audiochannels".to_string(), Amf0Value::Number(2_f64));
+        properties.insert("stereo".to_string(), Amf0Value::Boolean(true));
+        properties.insert("encoder".to_string(), Amf0Value::Utf8String("Test Encoder".to_string()));
+
+        let message = RtmpMessage::Amf0Data{
+            values: vec![
+                Amf0Value::Utf8String("@setDataFrame".to_string()),
+                Amf0Value::Utf8String("onMetaData".to_string()),
+                Amf0Value::Object(properties),
+            ]
+        };
+
+        let metadata_payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+        let metadata_packet = serializer.serialize(&metadata_payload, false, false).unwrap();
+        let metadata_results = session.handle_input(&metadata_packet.bytes[..]).unwrap();
+        let (_, mut events) = split_results(&mut deserializer, metadata_results);
+
+        assert_eq!(events.len(), 1, "Unexpected number of metadata events");
+
+        match events.remove(0) {
+            ServerSessionEvent::StreamMetadataChanged {app_name, stream_key, metadata} => {
+                assert_eq!(app_name, test_app_name, "Unexpected metadata app name");
+                assert_eq!(stream_key, test_stream_key, "Unexpected metadata stream key");
+                assert_eq!(metadata.video_width, Some(1920), "Unexpected video width");
+                assert_eq!(metadata.video_height, Some(1080), "Unexepcted video height");
+                assert_eq!(metadata.video_codec, Some("avc1".to_string()), "Unexepcted video codec");
+                assert_eq!(metadata.video_frame_rate, Some(30_f32), "Unexpected framerate");
+                assert_eq!(metadata.video_bitrate_kbps, Some(1200), "Unexpected video bitrate");
+                assert_eq!(metadata.audio_codec, Some("mp4a".to_string()), "Unexpected audio codec");
+                assert_eq!(metadata.audio_bitrate_kbps, Some(96), "Unexpected audio bitrate");
+                assert_eq!(metadata.audio_sample_rate, Some(48000), "Unexpected audio sample rate");
+                assert_eq!(metadata.audio_channels, Some(2), "Unexpected audio channels");
+                assert_eq!(metadata.audio_is_stereo, Some(true), "Unexpected audio is stereo value");
+                assert_eq!(metadata.encoder, Some("Test Encoder".to_string()), "Unexpected encoder value");
+            },
+
+            _ => panic!("Unexpected event received: {:?}", events[0]),
         }
     }
 
@@ -802,8 +986,8 @@ mod tests {
         payload
     }
 
-    fn perform_connection(session: &mut ServerSession, serializer: &mut ChunkSerializer, deserializer: &mut ChunkDeserializer) {
-        let connect_payload = create_connect_message("some_app".to_string(), 15, 0, 0.0);
+    fn perform_connection(app_name: &str, session: &mut ServerSession, serializer: &mut ChunkSerializer, deserializer: &mut ChunkDeserializer) {
+        let connect_payload = create_connect_message(app_name.to_string(), 15, 0, 0.0);
         let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
         let connect_results = session.handle_input(&connect_packet.bytes[..]).unwrap();
         assert_eq!(connect_results.len(), 1, "Unexpected number of responses when handling connect request message");
@@ -850,6 +1034,68 @@ mod tests {
             },
 
             _ => panic!("First response was not the expected value: {:?}", responses[0]),
+        }
+    }
+
+    fn start_publishing(stream_key: &str,
+                        stream_id: u32,
+                        session: &mut ServerSession,
+                        serializer: &mut ChunkSerializer,
+                        deserializer: &mut ChunkDeserializer) {
+        let message = RtmpMessage::Amf0Command {
+            command_name: "publish".to_string(),
+            transaction_id: 5.0,
+            command_object: Amf0Value::Null,
+            additional_arguments: vec![
+                Amf0Value::Utf8String(stream_key.to_string()),
+                Amf0Value::Utf8String("live".to_string()),
+            ]
+        };
+
+        let publish_payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+        let publish_packet = serializer.serialize(&publish_payload, false, false).unwrap();
+        let publish_results = session.handle_input(&publish_packet.bytes[..]).unwrap();
+        let (_, events) = split_results(deserializer, publish_results);
+
+        assert_eq!(events.len(), 1, "Unexpected number of events returned");
+        let request_id = match events[0] {
+            ServerSessionEvent::PublishStreamRequested {
+                ref app_name,
+                ref stream_key,
+                request_id: returned_request_id,
+                mode: PublishMode::Live,
+            } if app_name == "some_app" && stream_key == "stream_key" => {
+                returned_request_id
+            },
+
+            _ => panic!("Unexpected first event found: {:?}", events[0]),
+        };
+
+        let accept_results = session.accept_request(request_id).unwrap();
+        let (responses, _) = split_results(deserializer, accept_results);
+        assert_eq!(responses.len(), 1, "Unexpected number of responses received");
+
+        match responses[0] {
+            RtmpMessage::Amf0Command {
+                ref command_name,
+                transaction_id,
+                command_object: Amf0Value::Null,
+                ref additional_arguments
+            } if command_name == "onStatus" && transaction_id == 0.0 => {
+                assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+
+                match additional_arguments[0] {
+                    Amf0Value::Object(ref properties) => {
+                        assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
+                        assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetStream.Publish.Start".to_string())), "Unexpected code value");
+                        assert!(properties.contains_key("description"), "No description was included");
+                    },
+
+                    _ => panic!("Unexpected first additional argument received: {:?}", additional_arguments[0]),
+                }
+            },
+
+            _ => panic!("Unexpected first response: {:?}", responses[0]),
         }
     }
 }
