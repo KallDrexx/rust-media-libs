@@ -286,10 +286,18 @@ impl ServerSession {
             return Ok(vec![ServerSessionResult::OutboundResponse(packet)]);
         }
 
-        if self.current_state != SessionState::Connected || self.connected_app_name.is_none() {
+        if self.current_state != SessionState::Connected {
             let packet = self.create_error_packet("NetStream.Publish.Start", "Can't publish before connecting", transaction_id, stream_id)?;
             return Ok(vec![ServerSessionResult::OutboundResponse(packet)]);
         }
+
+        let app_name = match self.connected_app_name {
+            Some(ref name) => name.clone(),
+            None => {
+                let packet = self.create_error_packet("NetStream.Publish.Start", "Can't publish before connecting", transaction_id, stream_id)?;
+                return Ok(vec![ServerSessionResult::OutboundResponse(packet)]);
+            }
+        };
 
         let stream_key = match arguments.remove(0) {
             Amf0Value::Utf8String(stream_key) => stream_key,
@@ -334,11 +342,8 @@ impl ServerSession {
         self.outstanding_requests.insert(request_number, request);
 
         let event = ServerSessionEvent::PublishStreamRequested {
-            app_name: match self.connected_app_name {
-                Some(ref name) => name.clone(),
-                None => unreachable!(), // unreachable due to if check above
-            },
             request_id: request_number,
+            app_name,
             stream_key,
             mode,
         };
@@ -374,6 +379,11 @@ impl ServerSession {
             return Ok(Vec::new()); // setDataFrame has no meaning until they are conneted and publishing
         }
 
+        let app_name = match self.connected_app_name {
+            Some(ref name) => name.clone(),
+            None => return Ok(Vec::new()), // Not connected on a known app name.  Shouldn't really happen.
+        };
+
         let publish_stream_key = match self.active_streams.get(&stream_id) {
             Some(ref stream) => {
                 match stream.current_state {
@@ -394,12 +404,8 @@ impl ServerSession {
         }
 
         let event = ServerSessionEvent::StreamMetadataChanged {
-            app_name: match self.connected_app_name {
-                Some(ref name) => name.clone(),
-                None => unreachable!(), // unreachable due to if check above
-            },
-
             stream_key: publish_stream_key.clone(),
+            app_name,
             metadata,
         };
 
