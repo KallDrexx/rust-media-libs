@@ -52,7 +52,6 @@ pub enum ServerSessionEvent {
         stream_key: String,
         data: Vec<u8>,
         timestamp: RtmpTimestamp,
-        received_at: SystemTime,
     },
 
     /// Video data received from the client

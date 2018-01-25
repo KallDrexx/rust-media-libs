@@ -144,7 +144,7 @@ impl ServerSession {
                             => self.handle_amf0_data(values, payload.message_stream_id)?,
 
                         RtmpMessage::AudioData{data}
-                            => self.handle_audio_data(data)?,
+                            => self.handle_audio_data(data, payload.message_stream_id, payload.timestamp)?,
 
                         RtmpMessage::SetChunkSize{size}
                             => self.handle_set_chunk_size(size)?,
@@ -406,8 +406,36 @@ impl ServerSession {
         Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
-    fn handle_audio_data(&self, _data: Vec<u8>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        Ok(Vec::new())
+    fn handle_audio_data(&self, data: Vec<u8>, stream_id: u32, timestamp: RtmpTimestamp) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        if self.current_state != SessionState::Connected {
+            // Audio data sent before connected, just ignore it.
+            return Ok(Vec::new());
+        }
+
+        let app_name = match self.connected_app_name {
+            Some(ref x) => x.clone(),
+            None => return Ok(Vec::new()), // No app name so we aren't in a valid connection state.
+        };
+
+        let publish_stream_key = match self.active_streams.get(&stream_id) {
+            Some(ref stream) => {
+                match stream.current_state {
+                    StreamState::Publishing {ref stream_key, mode: _} => stream_key.clone(),
+                    _ => return Ok(Vec::new()), // Not a publishing stream so ignore it
+                }
+            },
+
+            None => return Ok(Vec::new()), // Audio sent over an invalid stream, ignore it
+        };
+
+        let event = ServerSessionEvent::AudioDataReceived {
+            stream_key: publish_stream_key,
+            app_name,
+            timestamp,
+            data,
+        };
+
+        Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
     fn handle_set_chunk_size(&mut self, size: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
@@ -922,6 +950,40 @@ mod tests {
             },
 
             _ => panic!("Unexpected event received: {:?}", events[0]),
+        }
+    }
+
+    #[test]
+    fn can_receive_audio_data_on_published_stream() {
+        let config = get_basic_config();
+        let test_app_name = "some_app".to_string();
+        let test_stream_key = "stream_key".to_string();
+
+        let mut deserializer = ChunkDeserializer::new();
+        let mut serializer = ChunkSerializer::new();
+        let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+        consume_results(&mut deserializer, results);
+        perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+        let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+        start_publishing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+        let message = RtmpMessage::AudioData {data: vec![1_u8, 2_u8, 3_u8]};
+        let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
+        let packet = serializer.serialize(&payload, false, false).unwrap();
+        let results = session.handle_input(&packet.bytes[..]).unwrap();
+        let (_, mut events) = split_results(&mut deserializer, results);
+
+        assert_eq!(events.len(), 1, "Unexpected number of events returned");
+
+        match events.remove(0) {
+            ServerSessionEvent::AudioDataReceived {app_name, stream_key, data, timestamp} => {
+                assert_eq!(app_name, test_app_name, "Unexpected app name");
+                assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+                assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexepcted timestamp");
+                assert_eq!(&data[..], &[1_u8, 2_u8, 3_u8], "Unexpected data");
+            },
+
+            event => panic!("Expected AudioDataReceived event, instead got: {:?}", event),
         }
     }
 
