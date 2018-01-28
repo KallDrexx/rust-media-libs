@@ -87,6 +87,28 @@ fn can_accept_connection_request() {
 }
 
 #[test]
+fn connect_request_strips_trailing_slash() {
+    let config = get_basic_config();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, initial_results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
+    let connect_payload = create_connect_message("some_app/".to_string(), 15, 0, 0.0);
+    let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
+    let connect_results = session.handle_input(&connect_packet.bytes[..]).unwrap();
+    assert_eq!(connect_results.len(), 1, "Unexpected number of responses when handling connect request message");
+
+    let (_, events) = split_results(&mut deserializer, connect_results);
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+    match events[0] {
+        ServerSessionEvent::ConnectionRequested {ref app_name, request_id: _} => assert_eq!(app_name, "some_app", "Unexpected app name"),
+        _ => panic!("First event was not as expected: {:?}", events[0]),
+    };
+
+}
+
+#[test]
 fn accepted_connection_responds_with_same_object_encoding_value_as_connection_request() {
     let config = get_basic_config();
     let mut deserializer = ChunkDeserializer::new();

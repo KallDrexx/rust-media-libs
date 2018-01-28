@@ -236,7 +236,13 @@ impl ServerSession {
 
         let app_name = match properties.remove("app") {
             Some(value) => match value {
-                Amf0Value::Utf8String(app) => app,
+                Amf0Value::Utf8String(mut app) => {
+                    if app.ends_with("/") {
+                        app.pop();
+                    }
+
+                    app
+                },
                 _ => return Err(ServerSessionError{kind: ServerSessionErrorKind::NoAppNameForConnectionRequest}),
             },
             None => return Err(ServerSessionError{kind: ServerSessionErrorKind::NoAppNameForConnectionRequest}),
