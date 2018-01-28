@@ -159,7 +159,7 @@ impl ServerSession {
                             => self.handle_user_control(event_type, stream_id, buffer_length, timestamp)?,
 
                         RtmpMessage::VideoData{data}
-                            => self.handle_video_data(data)?,
+                            => self.handle_video_data(data, payload.message_stream_id, payload.timestamp)?,
 
                         RtmpMessage::WindowAcknowledgement{size}
                             => self.handle_window_acknowledgement(size)?,
@@ -461,8 +461,36 @@ impl ServerSession {
         Ok(Vec::new())
     }
 
-    fn handle_video_data(&self, _data: Vec<u8>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        Ok(Vec::new())
+    fn handle_video_data(&self, data: Vec<u8>, stream_id: u32, timestamp: RtmpTimestamp) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        if self.current_state != SessionState::Connected {
+            // Video data sent before connected, just ignore it.
+            return Ok(Vec::new());
+        }
+
+        let app_name = match self.connected_app_name {
+            Some(ref x) => x.clone(),
+            None => return Ok(Vec::new()), // No app name so we aren't in a valid connection state.
+        };
+
+        let publish_stream_key = match self.active_streams.get(&stream_id) {
+            Some(ref stream) => {
+                match stream.current_state {
+                    StreamState::Publishing {ref stream_key, mode: _} => stream_key.clone(),
+                    _ => return Ok(Vec::new()), // Not a publishing stream so ignore it
+                }
+            },
+
+            None => return Ok(Vec::new()), // Video sent over an invalid stream, ignore it
+        };
+
+        let event = ServerSessionEvent::VideoDataReceived {
+            stream_key: publish_stream_key,
+            app_name,
+            timestamp,
+            data,
+        };
+
+        Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
     fn handle_window_acknowledgement(&self, _size: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {

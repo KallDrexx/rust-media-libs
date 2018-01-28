@@ -338,6 +338,40 @@ fn can_receive_audio_data_on_published_stream() {
     }
 }
 
+#[test]
+fn can_receive_video_data_on_published_stream() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+    start_publishing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::VideoData {data: vec![1_u8, 2_u8, 3_u8]};
+    let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+
+    match events.remove(0) {
+        ServerSessionEvent::VideoDataReceived {app_name, stream_key, data, timestamp} => {
+            assert_eq!(app_name, test_app_name, "Unexpected app name");
+            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+            assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexepcted timestamp");
+            assert_eq!(&data[..], &[1_u8, 2_u8, 3_u8], "Unexpected data");
+        },
+
+        event => panic!("Expected AudioDataReceived event, instead got: {:?}", event),
+    }
+}
+
 fn get_basic_config() -> ServerSessionConfig {
     ServerSessionConfig {
         chunk_size: DEFAULT_CHUNK_SIZE,

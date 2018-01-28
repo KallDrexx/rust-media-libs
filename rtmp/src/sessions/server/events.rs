@@ -1,4 +1,3 @@
-use std::time::{SystemTime};
 use rml_amf0::Amf0Value;
 use ::time::RtmpTimestamp;
 use ::sessions::StreamMetadata;
@@ -60,7 +59,6 @@ pub enum ServerSessionEvent {
         stream_key: String,
         data: Vec<u8>,
         timestamp: RtmpTimestamp,
-        received_at: SystemTime,
     },
 
     /// The client sent an Amf0 command that was not able to be handled
