@@ -372,6 +372,44 @@ fn can_receive_video_data_on_published_stream() {
     }
 }
 
+#[test]
+fn publish_finished_event_raised_when_delete_stream_invoked_on_publishing_stream() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+    start_publishing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::Amf0Command {
+        command_name: "deleteStream".to_string(),
+        transaction_id: 4_f64,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![Amf0Value::Number(stream_id as f64)],
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+
+    match events.remove(0) {
+        ServerSessionEvent::PublishStreamFinished {app_name, stream_key} => {
+            assert_eq!(app_name, test_app_name, "Unexpected app name");
+            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+        }
+
+        event => panic!("Expected PublishStreamFinished event, instead got: {:?}", event),
+    }
+}
+
 fn get_basic_config() -> ServerSessionConfig {
     ServerSessionConfig {
         chunk_size: DEFAULT_CHUNK_SIZE,

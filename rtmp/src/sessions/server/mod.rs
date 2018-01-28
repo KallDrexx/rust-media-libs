@@ -214,6 +214,7 @@ impl ServerSession {
         let results = match name.as_str() {
             "connect" => self.handle_command_connect(transaction_id, command_object)?,
             "createStream" => self.handle_command_create_stream(transaction_id)?,
+            "deleteStream" => self.handle_command_delete_stream(additional_args)?,
             "publish" => self.handle_command_publish(stream_id, transaction_id, additional_args)?,
 
             _ => vec![ServerSessionResult::RaisedEvent(ServerSessionEvent::UnhandleableAmf0Command {
@@ -281,6 +282,48 @@ impl ServerSession {
             new_stream_id)?;
 
         Ok(vec![ServerSessionResult::OutboundResponse(packet)])
+    }
+
+    fn handle_command_delete_stream(&mut self, mut arguments: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        // Not sure if I need to send a response
+        if self.current_state != SessionState::Connected {
+            return Ok(Vec::new());
+        }
+
+        let app_name = match self.connected_app_name {
+            Some(ref name) => name.clone(),
+            None => return Ok(Vec::new()),
+        };
+
+        if arguments.len() == 0 {
+            return Ok(Vec::new());
+        }
+
+        // First argument is expected to be the stream id
+        let stream_id = match arguments.remove(0) {
+            Amf0Value::Number(x) => x as u32,
+            _ => return Ok(Vec::new()),
+        };
+
+        let stream = match self.active_streams.remove(&stream_id) {
+            Some(stream) => stream,
+            None => return Ok(Vec::new()),
+        };
+
+        let result = match stream.current_state {
+            StreamState::Publishing {ref stream_key, mode: _} => {
+                let event = ServerSessionEvent::PublishStreamFinished {
+                    stream_key: stream_key.clone(),
+                    app_name,
+                };
+
+                vec![ServerSessionResult::RaisedEvent(event)]
+            },
+
+            _ => Vec::new(),
+        };
+
+        Ok(result)
     }
 
     fn handle_command_publish(&mut self, stream_id: u32, transaction_id: f64, mut arguments: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
