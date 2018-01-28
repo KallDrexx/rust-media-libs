@@ -213,6 +213,7 @@ impl ServerSession {
                            additional_args: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         let results = match name.as_str() {
             "connect" => self.handle_command_connect(transaction_id, command_object)?,
+            "closeStream" => self.handle_command_close_stream(additional_args)?,
             "createStream" => self.handle_command_create_stream(transaction_id)?,
             "deleteStream" => self.handle_command_delete_stream(additional_args)?,
             "publish" => self.handle_command_publish(stream_id, transaction_id, additional_args)?,
@@ -271,6 +272,53 @@ impl ServerSession {
         };
 
         Ok(vec![ServerSessionResult::RaisedEvent(event)])
+    }
+
+    fn handle_command_close_stream(&mut self, mut arguments: Vec<Amf0Value>) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        if self.current_state != SessionState::Connected {
+            return Ok(Vec::new());
+        }
+
+        let app_name = match self.connected_app_name {
+            Some(ref name) => name.clone(),
+            None => return Ok(Vec::new()),
+        };
+
+        // First argument should be the stream id to close
+        if arguments.len() == 0 {
+            return Ok(Vec::new());
+        }
+
+        let stream_id = match arguments.remove(0) {
+            Amf0Value::Number(x) => x as u32,
+            _ => return Ok(Vec::new())
+        };
+
+        let mut stream = match self.active_streams.get_mut(&stream_id) {
+            Some(x) => x,
+            None => return Ok(Vec::new()),
+        };
+
+        // Before we change the stream state we need to grab the info from it for any
+        // events that need to be raised
+        let results = match stream.current_state {
+            StreamState::Publishing {ref stream_key, mode: _} => {
+                let event = ServerSessionEvent::PublishStreamFinished {
+                    app_name,
+                    stream_key: stream_key.clone(),
+                };
+
+                vec![ServerSessionResult::RaisedEvent(event)]
+            },
+
+            _ => Vec::new(),
+        };
+
+        // As afar as we are concerned, a created and closed stream are equivalent.  Both allow
+        // reusing the stream
+        stream.current_state = StreamState::Created;
+
+        Ok(results)
     }
 
     fn handle_command_create_stream(&mut self, transaction_id: f64) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
