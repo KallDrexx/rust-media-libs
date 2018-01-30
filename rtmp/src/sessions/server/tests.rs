@@ -470,6 +470,52 @@ fn publish_finished_event_raised_when_close_stream_invoked_on_publishing_stream(
     }
 }
 
+#[test]
+fn can_request_publishing_on_closed_stream() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+    start_publishing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+    close_stream(stream_id, &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::Amf0Command {
+        command_name: "publish".to_string(),
+        transaction_id: 5.0,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![
+            Amf0Value::Utf8String(test_stream_key.to_string()),
+            Amf0Value::Utf8String("live".to_string()),
+        ]
+    };
+
+    let publish_payload = message.into_message_payload(RtmpTimestamp::new(2000), stream_id).unwrap();
+    let publish_packet = serializer.serialize(&publish_payload, false, false).unwrap();
+    let publish_results = session.handle_input(&publish_packet.bytes[..]).unwrap();
+    let (_, events) = split_results(&mut deserializer, publish_results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+    match events[0] {
+        ServerSessionEvent::PublishStreamRequested {
+            ref app_name,
+            ref stream_key,
+            request_id: _,
+            mode: PublishMode::Live,
+        } => {
+            assert_eq!(app_name, &test_app_name, "Unexpected app name");
+            assert_eq!(stream_key, &test_stream_key, "Unexpected stream key");
+        },
+
+        _ => panic!("Unexpected first event found: {:?}", events[0]),
+    }
+}
+
 fn get_basic_config() -> ServerSessionConfig {
     ServerSessionConfig {
         chunk_size: DEFAULT_CHUNK_SIZE,
@@ -580,6 +626,21 @@ fn create_active_stream(session: &mut ServerSession, serializer: &mut ChunkSeria
 
         _ => panic!("First response was not the expected value: {:?}", responses[0]),
     }
+}
+
+fn close_stream(stream_id: u32, session: &mut ServerSession, serializer: &mut ChunkSerializer, deserializer: &mut ChunkDeserializer) {
+    let message = RtmpMessage::Amf0Command {
+        command_name: "closeStream".to_string(),
+        transaction_id: 4_f64,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![Amf0Value::Number(stream_id as f64)],
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    println!("test");
+    consume_results(deserializer, results);
 }
 
 fn start_publishing(stream_key: &str,

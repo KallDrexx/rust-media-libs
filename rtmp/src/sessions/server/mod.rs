@@ -294,7 +294,7 @@ impl ServerSession {
             _ => return Ok(Vec::new())
         };
 
-        let mut stream = match self.active_streams.get_mut(&stream_id) {
+        let stream = match self.active_streams.get_mut(&stream_id) {
             Some(x) => x,
             None => return Ok(Vec::new()),
         };
