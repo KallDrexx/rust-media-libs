@@ -639,7 +639,6 @@ fn close_stream(stream_id: u32, session: &mut ServerSession, serializer: &mut Ch
     let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
     let packet = serializer.serialize(&payload, false, false).unwrap();
     let results = session.handle_input(&packet.bytes[..]).unwrap();
-    println!("test");
     consume_results(deserializer, results);
 }
 
