@@ -88,9 +88,10 @@ pub enum ServerSessionEvent {
         request_id: u32,
         app_name: String,
         stream_key: String,
-        start_at: Option<PlayStartValue>,
+        start_at: PlayStartValue,
         duration: Option<u32>,
-        reset: Option<bool>,
+        reset: bool,
+        stream_id: u32,
     },
 
     /// The client is finished with playback of the specified stream

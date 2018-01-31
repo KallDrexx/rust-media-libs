@@ -11,4 +11,9 @@ pub enum OutstandingRequest {
         mode: PublishMode,
         stream_id: u32,
     },
+
+    PlayRequested {
+        stream_key: String,
+        stream_id: u32,
+    },
 }

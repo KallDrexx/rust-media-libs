@@ -531,6 +531,181 @@ fn can_request_publishing_on_closed_stream() {
     }
 }
 
+#[test]
+fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::Amf0Command {
+        command_name: "play".to_string(),
+        transaction_id: 4.0,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![Amf0Value::Utf8String(test_stream_key.clone())],
+    };
+
+    let play_payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let play_packet = serializer.serialize(&play_payload, false, false).unwrap();
+    let play_results = session.handle_input(&play_packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, play_results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+    let request_id = match events.remove(0) {
+        ServerSessionEvent::PlayStreamRequested {app_name, stream_key, start_at, duration, reset, request_id, stream_id: sid} => {
+            assert_eq!(app_name, test_app_name.as_ref(), "Unexpected app name");
+            assert_eq!(stream_key, test_stream_key.as_ref(), "Unexpected stream key");
+            assert_eq!(start_at, PlayStartValue::LiveOrRecorded, "Unexpected start at");
+            assert_eq!(duration, None, "Unexpected duration");
+            assert_eq!(reset, false, "Unexpected reset value");
+            assert_eq!(sid, stream_id, "Unexpected stream id");
+            request_id
+        },
+
+        x => panic!("Expected play event but instead received: {:?}", x),
+    };
+
+    let accept_results = session.accept_request(request_id).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, accept_results);
+    assert_eq!(responses.len(), 5, "Unexpected number of messages received");
+
+    match responses.remove(0) {
+        RtmpMessage::UserControl {event_type, stream_id: sid, buffer_length, timestamp} => {
+            assert_eq!(event_type, UserControlEventType::StreamBegin, "Unexpected user control event type received");
+            assert_eq!(sid, Some(stream_id), "Unexpected user control stream id");
+            assert_eq!(buffer_length, None, "Unexpected user control buffer length");
+            assert_eq!(timestamp, None, "Unexpected user control timestamp");
+        },
+
+        x => println!("Expected stream begin message, instead received: {:?}", x),
+    }
+
+    match responses.remove(0) {
+        RtmpMessage::Amf0Command {command_name, transaction_id, command_object, mut additional_arguments} => {
+            assert_eq!(command_name, "onStatus".to_string(), "Unexpected command name");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+
+            match additional_arguments.remove(0) {
+                Amf0Value::Object(ref properties) => {
+                    assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
+                    assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetStream.Play.Start".to_string())), "Unexpected code value");
+                    assert!(properties.contains_key("description"), "Expected description");
+                },
+
+                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
+            }
+        },
+
+        x => panic!("Expected netstream play status command, instead received: {:?}", x),
+    }
+
+    match responses.remove(0) {
+        RtmpMessage::Amf0Data {values} => {
+            assert_eq!(values.len(), 3, "Unexpected number of values received");
+            assert_eq!(values[0], Amf0Value::Utf8String("|RtmpSampleAccess".to_string()), "Incorrect first data argument");
+            assert_eq!(values[1], Amf0Value::Boolean(false), "Incorrect second data argument");
+            assert_eq!(values[2], Amf0Value::Boolean(false), "Incorrect third data argument");
+        },
+
+        x => println!("Expected RtmpSampleAccess data argument, instead received: {:?}", x),
+    }
+
+    match responses.remove(0) {
+        RtmpMessage::Amf0Data {mut values} => {
+            assert_eq!(values.len(), 2, "Unexpected number of values received");
+            assert_eq!(values[0], Amf0Value::Utf8String("onStatus".to_string()), "Unexpected first data argument");
+            match values.remove(1) {
+                Amf0Value::Object(ref properties) => {
+                    assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetStream.Data.Start".to_string())), "Unexpected code value");
+                },
+
+                x => panic!("Expected object for 2nd data argument, instead received: {:?}", x),
+            }
+        },
+
+        x => panic!("Expected onStatus data argument, instead received: {:?}", x),
+    }
+
+    match responses.remove(0) {
+        RtmpMessage::Amf0Command {command_name, transaction_id, command_object, mut additional_arguments} => {
+            assert_eq!(command_name, "onStatus".to_string(), "Unexpected command name");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+
+            match additional_arguments.remove(0) {
+                Amf0Value::Object(ref properties) => {
+                    assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
+                    assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetStream.Play.Reset".to_string())), "Unexpected code value");
+                    assert!(properties.contains_key("description"), "Expected description");
+                },
+
+                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
+            }
+        },
+
+        x => panic!("Expected play reset command, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn can_accept_play_command_with_all_optional_parameters_to_requested_stream_key() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::Amf0Command {
+        command_name: "play".to_string(),
+        transaction_id: 4.0,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![
+            Amf0Value::Utf8String(test_stream_key.clone()),
+            Amf0Value::Number(5.0), // Start argument
+            Amf0Value::Number(25.0), // Duration,
+            Amf0Value::Boolean(true), // reset
+        ],
+    };
+
+    let play_payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let play_packet = serializer.serialize(&play_payload, false, false).unwrap();
+    let play_results = session.handle_input(&play_packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, play_results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+    let request_id = match events.remove(0) {
+        ServerSessionEvent::PlayStreamRequested {app_name, stream_key, start_at, duration, reset, request_id, stream_id: sid} => {
+            assert_eq!(app_name, test_app_name.as_ref(), "Unexpected app name");
+            assert_eq!(stream_key, test_stream_key.as_ref(), "Unexpected stream key");
+            assert_eq!(start_at, PlayStartValue::StartTimeInSeconds(5), "Unexpected start at");
+            assert_eq!(duration, Some(25), "Unexpected duration");
+            assert_eq!(reset, true, "Unexpected reset value");
+            assert_eq!(sid, stream_id, "Unexpected stream id");
+            request_id
+        },
+
+        x => panic!("Expected play event but instead received: {:?}", x),
+    };
+
+    let accept_results = session.accept_request(request_id).unwrap();
+    consume_results(&mut deserializer, accept_results);
+}
+
+
 fn get_basic_config() -> ServerSessionConfig {
     ServerSessionConfig {
         chunk_size: DEFAULT_CHUNK_SIZE,
