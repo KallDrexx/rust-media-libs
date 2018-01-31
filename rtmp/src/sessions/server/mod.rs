@@ -638,17 +638,32 @@ impl ServerSession {
         };
 
         let description = format!("Successfully started publishing on stream key {}", stream_key);
+
+        let stream_begin_message = RtmpMessage::UserControl {
+            event_type: UserControlEventType::StreamBegin,
+            stream_id: Some(stream_id),
+            buffer_length: None,
+            timestamp: None,
+        };
+
+        let stream_begin_payload = stream_begin_message.into_message_payload(self.get_epoch(), stream_id)?;
+        let stream_begin_packet = self.serializer.serialize(&stream_begin_payload, false, false)?;
+
         let status_object = create_status_object("status", "NetStream.Publish.Start", description.as_ref());
-        let message = RtmpMessage::Amf0Command {
+        let publish_start_message = RtmpMessage::Amf0Command {
             command_name: "onStatus".to_string(),
             transaction_id: 0.0,
             command_object: Amf0Value::Null,
             additional_arguments: vec![Amf0Value::Object(status_object)]
         };
 
-        let payload = message.into_message_payload(self.get_epoch(), stream_id)?;
-        let packet = self.serializer.serialize(&payload, false, false)?;
-        Ok(vec![ServerSessionResult::OutboundResponse(packet)])
+        let publish_start_payload = publish_start_message.into_message_payload(self.get_epoch(), stream_id)?;
+        let publish_packet = self.serializer.serialize(&publish_start_payload, false, false)?;
+
+        Ok(vec![
+            ServerSessionResult::OutboundResponse(stream_begin_packet),
+            ServerSessionResult::OutboundResponse(publish_packet)
+        ])
     }
 
     fn create_success_response(&mut self,

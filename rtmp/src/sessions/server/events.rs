@@ -3,6 +3,20 @@ use ::time::RtmpTimestamp;
 use ::sessions::StreamMetadata;
 use super::PublishMode;
 
+/// Represents where RTMP playback should start from
+#[derive(PartialEq, Debug, Clone)]
+pub enum PlayStartValue {
+    /// If a live stream exists for the specified stream keyplay it, if not
+    /// play the recorded stream with a matching name
+    LiveOrRecorded,
+
+    /// Only play live streams with the provided stream key
+    LiveOnly,
+
+    /// Play the recorded stream for the stream key at the specified start time
+    StartTimeInSeconds(u32),
+}
+
 /// An event that a server session can raise
 #[derive(Debug, PartialEq, Clone)]
 pub enum ServerSessionEvent {
@@ -74,11 +88,9 @@ pub enum ServerSessionEvent {
         request_id: u32,
         app_name: String,
         stream_key: String,
-        //video_type
-        start_at: u32,
-        duration: u32,
-        reset: bool,
-        stream_id: u32,
+        start_at: Option<PlayStartValue>,
+        duration: Option<u32>,
+        reset: Option<bool>,
     },
 
     /// The client is finished with playback of the specified stream

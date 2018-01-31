@@ -235,16 +235,31 @@ fn can_accept_live_publishing_to_requested_stream_key() {
     };
 
     let accept_results = session.accept_request(request_id).unwrap();
-    let (responses, _) = split_results(&mut deserializer, accept_results);
-    assert_eq!(responses.len(), 1, "Unexpected number of responses received");
+    let (mut responses, _) = split_results(&mut deserializer, accept_results);
+    assert_eq!(responses.len(), 2, "Unexpected number of responses received");
 
-    match responses[0] {
+    match responses.remove(0) {
+        RtmpMessage::UserControl {
+            event_type: UserControlEventType::StreamBegin,
+            stream_id: Some(received_stream_id),
+            buffer_length: None,
+            timestamp: None,
+        } => {
+            assert_eq!(received_stream_id, stream_id, "Stream begin did not contain the expected stream id");
+        },
+
+        x => panic!("Expected stream begin for stream id {:?} but instead received: {:?}", stream_id, x),
+    }
+
+    match responses.remove(0) {
         RtmpMessage::Amf0Command {
-            ref command_name,
+            command_name,
             transaction_id,
             command_object: Amf0Value::Null,
-            ref additional_arguments
-        } if command_name == "onStatus" && transaction_id == 0.0 => {
+            additional_arguments
+        } => {
+            assert_eq!(command_name, "onStatus".to_string(), "Unexpected command name");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
 
             match additional_arguments[0] {
@@ -258,7 +273,7 @@ fn can_accept_live_publishing_to_requested_stream_key() {
             }
         },
 
-        _ => panic!("Unexpected first response: {:?}", responses[0]),
+        x => panic!("Unexpected first response: {:?}", x),
     }
 }
 
@@ -677,29 +692,5 @@ fn start_publishing(stream_key: &str,
     };
 
     let accept_results = session.accept_request(request_id).unwrap();
-    let (responses, _) = split_results(deserializer, accept_results);
-    assert_eq!(responses.len(), 1, "Unexpected number of responses received");
-
-    match responses[0] {
-        RtmpMessage::Amf0Command {
-            ref command_name,
-            transaction_id,
-            command_object: Amf0Value::Null,
-            ref additional_arguments
-        } if command_name == "onStatus" && transaction_id == 0.0 => {
-            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
-
-            match additional_arguments[0] {
-                Amf0Value::Object(ref properties) => {
-                    assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
-                    assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetStream.Publish.Start".to_string())), "Unexpected code value");
-                    assert!(properties.contains_key("description"), "No description was included");
-                },
-
-                _ => panic!("Unexpected first additional argument received: {:?}", additional_arguments[0]),
-            }
-        },
-
-        _ => panic!("Unexpected first response: {:?}", responses[0]),
-    }
+    consume_results(deserializer, accept_results);
 }
