@@ -3,4 +3,5 @@ members = [
 	"amf0",
 	"rtmp",
 	"tools/handshake-tester",
+	"examples/mio_rtmp_server",
 ]
