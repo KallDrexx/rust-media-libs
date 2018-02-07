@@ -315,6 +315,15 @@ impl ServerSession {
                 vec![ServerSessionResult::RaisedEvent(event)]
             },
 
+            StreamState::Playing {ref stream_key} => {
+                let event = ServerSessionEvent::PlayStreamFinished {
+                    app_name,
+                    stream_key: stream_key.clone()
+                };
+
+                vec![ServerSessionResult::RaisedEvent(event)]
+            }
+
             _ => Vec::new(),
         };
 
@@ -378,6 +387,14 @@ impl ServerSession {
                 vec![ServerSessionResult::RaisedEvent(event)]
             },
 
+            StreamState::Playing {ref stream_key} => {
+                let event = ServerSessionEvent::PlayStreamFinished {
+                    app_name,
+                    stream_key: stream_key.clone()
+                };
+
+                vec![ServerSessionResult::RaisedEvent(event)]
+            }
             _ => Vec::new(),
         };
 

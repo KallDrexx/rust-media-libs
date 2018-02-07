@@ -705,6 +705,83 @@ fn can_accept_play_command_with_all_optional_parameters_to_requested_stream_key(
     consume_results(&mut deserializer, accept_results);
 }
 
+#[test]
+fn play_finished_event_when_close_stream_invoked() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+
+    start_playing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::Amf0Command {
+        command_name: "closeStream".to_string(),
+        transaction_id: 4_f64,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![Amf0Value::Number(stream_id as f64)],
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+
+    match events.remove(0) {
+        ServerSessionEvent::PlayStreamFinished {app_name, stream_key} => {
+            assert_eq!(app_name, test_app_name, "Unexpected app name");
+            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+        }
+
+        event => panic!("Expected PublishStreamFinished event, instead got: {:?}", event),
+    }
+}
+
+#[test]
+fn play_finished_event_when_delete_stream_invoked_on_playing_stream() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+
+    start_playing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::Amf0Command {
+        command_name: "deleteStream".to_string(),
+        transaction_id: 4_f64,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![Amf0Value::Number(stream_id as f64)],
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+
+    match events.remove(0) {
+        ServerSessionEvent::PlayStreamFinished {app_name, stream_key} => {
+            assert_eq!(app_name, test_app_name, "Unexpected app name");
+            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+        }
+
+        event => panic!("Expected PublishStreamFinished event, instead got: {:?}", event),
+    }
+}
 
 fn get_basic_config() -> ServerSessionConfig {
     ServerSessionConfig {
@@ -864,6 +941,41 @@ fn start_publishing(stream_key: &str,
         },
 
         _ => panic!("Unexpected first event found: {:?}", events[0]),
+    };
+
+    let accept_results = session.accept_request(request_id).unwrap();
+    consume_results(deserializer, accept_results);
+}
+
+fn start_playing(stream_key: &str,
+                    stream_id: u32,
+                    session: &mut ServerSession,
+                    serializer: &mut ChunkSerializer,
+                    deserializer: &mut ChunkDeserializer) {
+    let message = RtmpMessage::Amf0Command {
+        command_name: "play".to_string(),
+        transaction_id: 4.0,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![
+            Amf0Value::Utf8String(stream_key.to_string()),
+            Amf0Value::Number(5.0), // Start argument
+            Amf0Value::Number(25.0), // Duration,
+            Amf0Value::Boolean(true), // reset
+        ],
+    };
+
+    let play_payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let play_packet = serializer.serialize(&play_payload, false, false).unwrap();
+    let play_results = session.handle_input(&play_packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(deserializer, play_results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events returned");
+    let request_id = match events.remove(0) {
+        ServerSessionEvent::PlayStreamRequested {app_name: _, stream_key: _, start_at: _, duration: _, reset: _, request_id, stream_id: _} => {
+            request_id
+        },
+
+        x => panic!("Expected play event but instead received: {:?}", x),
     };
 
     let accept_results = session.accept_request(request_id).unwrap();
