@@ -6,7 +6,7 @@ mod connection;
 use mio::*;
 use mio::net::{TcpListener};
 use slab::Slab;
-use ::connection::Connection;
+use ::connection::{Connection, ConnectionState};
 
 const SERVER: Token = Token(std::usize::MAX - 1);
 
@@ -38,17 +38,28 @@ fn main() {
                 },
 
                 Token(value) => {
-                    let mut connection = match connections.get_mut(value) {
-                        Some(connection) => connection,
-                        None => continue,
-                    };
+                    let mut should_close_connection = false;
+                    {
+                        let mut connection = match connections.get_mut(value) {
+                            Some(connection) => connection,
+                            None => continue,
+                        };
 
-                    if event.readiness().is_readable() {
-                        connection.readable(&mut poll).unwrap();
+                        if event.readiness().is_readable() {
+                            let state = connection.readable(&mut poll).unwrap();
+                            if state == ConnectionState::Closed {
+                                should_close_connection = true;
+                            }
+                        }
+
+                        if event.readiness().is_writable() {
+                            connection.writable(&mut poll).unwrap();
+                        }
                     }
 
-                    if event.readiness().is_writable() {
-                        connection.writable(&mut poll).unwrap();
+                    if should_close_connection {
+                        println!("Connection closed");
+                        connections.remove(value);
                     }
                 }
             }

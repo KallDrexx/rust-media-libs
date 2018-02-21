@@ -4,6 +4,12 @@ use std::collections::VecDeque;
 use mio::{Token, Ready, Poll, PollOpt};
 use mio::net::TcpStream;
 
+#[derive(PartialEq, Eq)]
+pub enum ConnectionState {
+    Active,
+    Closed
+}
+
 pub struct Connection {
     socket: TcpStream,
     pub token: Option<Token>,
@@ -32,18 +38,18 @@ impl Connection {
         Ok(())
     }
 
-    pub fn readable(&mut self, poll: &mut Poll) -> io::Result<()> {
+    pub fn readable(&mut self, poll: &mut Poll) -> io::Result<ConnectionState> {
         println!("Socket readable");
 
         let mut buffer = [0_u8; 1024];
         loop {
             match self.socket.read(&mut buffer) {
+                Ok(0) => {
+                    return Ok(ConnectionState::Closed);
+                },
+
                 Ok(bytes_read) => {
                     println!("{} bytes read", bytes_read);
-
-                    if bytes_read == 0 {
-                        break;
-                    }
 
                     for x in 0..bytes_read {
                         self.read_buffer.push(buffer[x]);
@@ -58,7 +64,9 @@ impl Connection {
 
                 Err(error) => {
                     if error.kind() == io::ErrorKind::WouldBlock {
-                        // Can't read right now, so wait till next readable event
+                        println!("wouldblock");
+                        // There's no data available in the receive buffer, stop trying until the
+                        // next readable event.
                         break;
                     } else {
                         println!("Failed to send buffer for {:?} with error {}", self.token, error);
@@ -69,7 +77,7 @@ impl Connection {
         }
 
         self.register(poll)?;
-        Ok(())
+        Ok(ConnectionState::Active)
     }
 
     pub fn writable(&mut self, poll: &mut Poll) -> io::Result<()> {
