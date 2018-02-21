@@ -7,4 +7,5 @@ description = "Simple RTMP server utilizing mio"
 [dependencies]
 mio = "0.6.13"
 slab = "0.4.0"
+bytes = "0.4.6"
 rml_rtmp = { path = "../../rtmp" }
