@@ -6,8 +6,11 @@
 
 mod server;
 
-pub use self::server::ServerSessionEvent;
 pub use self::server::ServerSession;
+pub use self::server::ServerSessionEvent;
+pub use self::server::ServerSessionConfig;
+pub use self::server::ServerSessionError;
+pub use self::server::ServerSessionResult;
 
 /// Contains the metadata information a stream may advertise on publishing
 #[derive(PartialEq, Debug, Clone)]

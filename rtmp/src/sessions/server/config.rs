@@ -8,3 +8,15 @@ pub struct ServerSessionConfig {
     pub window_ack_size: u32,
 }
 
+impl ServerSessionConfig {
+    /// Creates a new server session config with overridable defaults
+    pub fn new() -> ServerSessionConfig {
+        ServerSessionConfig {
+            fms_version: "FMS/3,0,1,123".to_string(),
+            peer_bandwidth: 2_500_000,
+            window_ack_size: 1_073_741_824,
+            chunk_size: 4096,
+        }
+    }
+}
+
