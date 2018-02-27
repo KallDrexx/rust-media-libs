@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use std::collections::VecDeque;
 use mio::{Token, Ready, Poll, PollOpt};
 use mio::net::TcpStream;
+use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
 
 #[derive(PartialEq, Eq)]
 pub enum ConnectionState {
@@ -15,8 +16,8 @@ pub struct Connection {
     pub token: Option<Token>,
     interest: Ready,
     send_queue: VecDeque<Vec<u8>>,
-    read_buffer: Vec<u8>,
     has_been_registered: bool,
+    handshake: Handshake,
 }
 
 impl Connection {
@@ -26,12 +27,12 @@ impl Connection {
             token: None,
             interest: Ready::readable() | Ready::writable(),
             send_queue: VecDeque::new(),
-            read_buffer: Vec::new(),
             has_been_registered: false,
+            handshake: Handshake::new(PeerType::Server),
         }
     }
 
-    pub fn write_line(&mut self, poll: &mut Poll, line: Vec<u8>) -> io::Result<()> {
+    pub fn enqueue_response(&mut self, poll: &mut Poll, line: Vec<u8>) -> io::Result<()> {
         self.send_queue.push_back(line);
         self.interest.insert(Ready::writable());
         self.register(poll)?;
@@ -39,9 +40,7 @@ impl Connection {
     }
 
     pub fn readable(&mut self, poll: &mut Poll) -> io::Result<ConnectionState> {
-        println!("Socket readable");
-
-        let mut buffer = [0_u8; 1024];
+        let mut buffer = [0_u8; 4096];
         loop {
             match self.socket.read(&mut buffer) {
                 Ok(0) => {
@@ -49,22 +48,31 @@ impl Connection {
                 },
 
                 Ok(bytes_read) => {
-                    println!("{} bytes read", bytes_read);
+                    let result = match self.handshake.process_bytes(&buffer[..bytes_read]) {
+                        Ok(result) => result,
+                        Err(error) => {
+                            println!("Handshake error: {:?}", error);
+                            return Ok(ConnectionState::Closed);
+                        }
+                    };
 
-                    for x in 0..bytes_read {
-                        self.read_buffer.push(buffer[x]);
+                    match result {
+                        HandshakeProcessResult::InProgress {response_bytes} => {
+                            println!("Handshake in progress");
+                            if response_bytes.len() > 0 {
+                                self.enqueue_response(poll, response_bytes)?;
+                            }
+                        },
 
-                        if buffer[x] == '\n' as u8 {
-                            // Send the line back to the client
-                            let line = self.read_buffer.drain(..).collect();
-                            self.write_line(poll, line)?;
+                        HandshakeProcessResult::Completed {response_bytes: _, remaining_bytes: _} => {
+                            println!("Handshake completed!");
+                            return Ok(ConnectionState::Closed);
                         }
                     }
                 },
 
                 Err(error) => {
                     if error.kind() == io::ErrorKind::WouldBlock {
-                        println!("wouldblock");
                         // There's no data available in the receive buffer, stop trying until the
                         // next readable event.
                         break;
@@ -81,8 +89,6 @@ impl Connection {
     }
 
     pub fn writable(&mut self, poll: &mut Poll) -> io::Result<()> {
-        println!("Socket writable");
-
         let message = match self.send_queue.pop_front() {
             Some(x) => x,
             None => {
@@ -120,8 +126,6 @@ impl Connection {
     }
 
     pub fn register(&mut self, poll: &mut Poll) -> io::Result<()> {
-        println!("Registering with interest: {:?}", self.interest);
-
         match self.has_been_registered {
             true => poll.reregister(&self.socket, self.token.unwrap(), self.interest, PollOpt::edge() | PollOpt::oneshot())?,
             false => poll.register(&self.socket, self.token.unwrap(), self.interest, PollOpt::edge() | PollOpt::oneshot())?

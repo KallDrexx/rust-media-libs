@@ -1,5 +1,6 @@
 extern crate mio;
 extern crate slab;
+extern crate rml_rtmp;
 
 mod connection;
 
@@ -25,9 +26,6 @@ fn main() {
         poll.poll(&mut events, None).unwrap();
 
         for event in events.iter() {
-            println!("ready {:?} {:?}", event.token(), event.readiness());
-            println!("token: {:?}", event.token());
-
             match event.token() {
                 SERVER => {
                     let (socket, _) = server.accept().unwrap();
