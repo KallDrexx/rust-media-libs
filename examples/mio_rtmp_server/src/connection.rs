@@ -4,17 +4,28 @@ use std::collections::VecDeque;
 use mio::{Token, Ready, Poll, PollOpt};
 use mio::net::TcpStream;
 use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
-use rml_rtmp::sessions::{ServerSession, ServerSessionResult, ServerSessionConfig};
 
-#[derive(PartialEq, Eq)]
-pub enum ConnectionState {
-    Active,
-    Closed
+const BUFFER_SIZE: usize = 4096;
+
+pub enum ReadResult {
+    HandshakingInProgress,
+    NoBytesReceived,
+    BytesReceived {
+        buffer: [u8; BUFFER_SIZE],
+        byte_count: usize,
+    },
 }
 
-enum ByteHandler {
-    Handshake,
-    RtmpSession,
+#[derive(Debug)]
+pub enum ConnectionError {
+    IoError(io::Error),
+    SocketClosed,
+}
+
+impl From<io::Error> for ConnectionError {
+    fn from(error: io::Error) -> Self {
+        ConnectionError::IoError(error)
+    }
 }
 
 pub struct Connection {
@@ -23,9 +34,8 @@ pub struct Connection {
     interest: Ready,
     send_queue: VecDeque<Vec<u8>>,
     has_been_registered: bool,
-    byte_handler: ByteHandler,
     handshake: Handshake,
-    server_session: Option<ServerSession>,
+    handshake_completed: bool,
 }
 
 impl Connection {
@@ -36,9 +46,8 @@ impl Connection {
             interest: Ready::readable() | Ready::writable(),
             send_queue: VecDeque::new(),
             has_been_registered: false,
-            byte_handler: ByteHandler::Handshake,
             handshake: Handshake::new(PeerType::Server),
-            server_session: None,
+            handshake_completed: false,
         }
     }
 
@@ -49,34 +58,32 @@ impl Connection {
         Ok(())
     }
 
-    pub fn readable(&mut self, poll: &mut Poll) -> io::Result<ConnectionState> {
+    pub fn readable(&mut self, poll: &mut Poll) -> Result<ReadResult, ConnectionError> {
         let mut buffer = [0_u8; 4096];
-        loop {
-            match self.socket.read(&mut buffer) {
-                Ok(0) => {
-                    return Ok(ConnectionState::Closed);
-                },
+        match self.socket.read(&mut buffer) {
+            Ok(0) => {
+                Err(ConnectionError::SocketClosed)
+            },
 
-                Ok(bytes_read) => {
-                    let state = match self.byte_handler {
-                        ByteHandler::Handshake => self.handle_handshake_bytes(poll, &buffer[..bytes_read])?,
-                        ByteHandler::RtmpSession => self.handle_rtmp_bytes(poll, &buffer[..bytes_read])?,
-                    };
+            Ok(bytes_read_count) => {
+                let read_bytes = match self.handshake_completed {
+                    false => self.handle_handshake_bytes(poll, &buffer[..bytes_read_count])?,
+                    true => ReadResult::BytesReceived {buffer, byte_count: bytes_read_count},
+                };
 
+                self.register(poll)?;
+                Ok(read_bytes)
+            },
+
+            Err(error) => {
+                if error.kind() == io::ErrorKind::WouldBlock {
+                    // There's no data available in the receive buffer, stop trying until the
+                    // next readable event.
                     self.register(poll)?;
-                    return Ok(state);
-                },
-
-                Err(error) => {
-                    if error.kind() == io::ErrorKind::WouldBlock {
-                        // There's no data available in the receive buffer, stop trying until the
-                        // next readable event.
-                        self.register(poll)?;
-                        return Ok(ConnectionState::Active);
-                    } else {
-                        println!("Failed to send buffer for {:?} with error {}", self.token, error);
-                        return Err(error);
-                    }
+                    Ok(ReadResult::NoBytesReceived)
+                } else {
+                    println!("Failed to send buffer for {:?} with error {}", self.token, error);
+                    return Err(ConnectionError::IoError(error));
                 }
             }
         }
@@ -127,12 +134,12 @@ impl Connection {
         Ok(())
     }
 
-    fn handle_handshake_bytes(&mut self, poll: &mut Poll, bytes: &[u8]) -> io::Result<ConnectionState> {
+    fn handle_handshake_bytes(&mut self, poll: &mut Poll, bytes: &[u8]) -> Result<ReadResult, ConnectionError> {
         let result = match self.handshake.process_bytes(bytes) {
             Ok(result) => result,
             Err(error) => {
                 println!("Handshake error: {:?}", error);
-                return Ok(ConnectionState::Closed);
+                return Err(ConnectionError::SocketClosed);
             }
         };
 
@@ -143,7 +150,7 @@ impl Connection {
                     self.enqueue_response(poll, response_bytes)?;
                 }
 
-                Ok(ConnectionState::Active)
+                Ok(ReadResult::HandshakingInProgress)
             },
 
             HandshakeProcessResult::Completed {response_bytes, remaining_bytes} => {
@@ -152,45 +159,15 @@ impl Connection {
                     self.enqueue_response(poll, response_bytes)?;
                 }
 
-                let (session, mut results) = match ServerSession::new(ServerSessionConfig::new()) {
-                    Ok(x) => x,
-                    Err(error) => {
-                        println!("Error creating new server session: {:?}", error);
-                        return Ok(ConnectionState::Closed);
-                    }
-                };
-
-                self.server_session = Some(session);
-
-                for result in results.drain(..) {
-                    match result {
-                        ServerSessionResult::OutboundResponse(packet) => self.enqueue_response(poll, packet.bytes)?,
-                        x => println!("Session result: {:?}", x),
-                    }
+                let mut buffer = [0; BUFFER_SIZE];
+                let buffer_size = remaining_bytes.len();
+                for (index, value) in remaining_bytes.into_iter().enumerate() {
+                    buffer[index] = value;
                 }
 
-                self.byte_handler = ByteHandler::RtmpSession;
-                self.handle_rtmp_bytes(poll, &remaining_bytes[..])
+                self.handshake_completed = true;
+                Ok(ReadResult::BytesReceived {buffer, byte_count: buffer_size})
             }
         }
-    }
-
-    fn handle_rtmp_bytes(&mut self, poll: &mut Poll, bytes: &[u8]) -> io::Result<ConnectionState> {
-        let mut results = match self.server_session.as_mut().unwrap().handle_input(bytes) {
-            Ok(results) => results,
-            Err(error) => {
-                println!("Server session error: {:?}", error);
-                return Ok(ConnectionState::Closed);
-            }
-        };
-
-        for result in results.drain(..) {
-            match result {
-                ServerSessionResult::OutboundResponse(packet) => self.enqueue_response(poll, packet.bytes)?,
-                x => println!("Session result: {:?}", x),
-            }
-        }
-
-        return Ok(ConnectionState::Active);
     }
 }

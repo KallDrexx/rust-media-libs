@@ -7,7 +7,7 @@ mod connection;
 use mio::*;
 use mio::net::{TcpListener};
 use slab::Slab;
-use ::connection::{Connection, ConnectionState};
+use ::connection::{Connection, ConnectionError};
 
 const SERVER: Token = Token(std::usize::MAX - 1);
 
@@ -44,9 +44,10 @@ fn main() {
                         };
 
                         if event.readiness().is_readable() {
-                            let state = connection.readable(&mut poll).unwrap();
-                            if state == ConnectionState::Closed {
-                                should_close_connection = true;
+                            match connection.readable(&mut poll) {
+                                Ok(_) => (),
+                                Err(ConnectionError::SocketClosed) => should_close_connection = true,
+                                Err(x) => panic!("Error occurred: {:?}", x),
                             }
                         }
 
