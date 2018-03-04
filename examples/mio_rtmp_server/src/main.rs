@@ -124,6 +124,10 @@ fn handle_read_bytes(bytes: &[u8],
                     None => (),
                 }
             },
+
+            ServerResult::DisconnectConnection {connection_id} => {
+                closed_tokens.insert(connection_id);
+            }
         }
     }
 
