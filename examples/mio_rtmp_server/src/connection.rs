@@ -51,8 +51,8 @@ impl Connection {
         }
     }
 
-    pub fn enqueue_response(&mut self, poll: &mut Poll, line: Vec<u8>) -> io::Result<()> {
-        self.send_queue.push_back(line);
+    pub fn enqueue_response(&mut self, poll: &mut Poll, bytes: Vec<u8>) -> io::Result<()> {
+        self.send_queue.push_back(bytes);
         self.interest.insert(Ready::writable());
         self.register(poll)?;
         Ok(())

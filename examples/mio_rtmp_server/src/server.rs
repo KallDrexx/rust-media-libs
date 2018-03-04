@@ -4,13 +4,11 @@ use rml_rtmp::sessions::{ServerSession, ServerSessionConfig, ServerSessionResult
 use rml_rtmp::chunk_io::Packet;
 
 struct Client {
-    connection_id: usize,
     session: ServerSession,
 }
 
 #[derive(Debug)]
 pub enum ServerResult {
-    DisconnectConnection {connection_id: usize},
     OutboundPacket {
         target_connection_id: usize,
         packet: Packet,
@@ -41,7 +39,7 @@ impl Server {
             };
 
             handle_session_results(connection_id, initial_session_results, &mut server_results);
-            let client = Client {connection_id, session};
+            let client = Client {session};
             let client_id = Some(self.clients.insert(client));
             self.connection_to_client_map.insert(connection_id, client_id.unwrap());
         }

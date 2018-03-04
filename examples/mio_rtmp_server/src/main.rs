@@ -5,13 +5,17 @@ extern crate rml_rtmp;
 mod connection;
 mod server;
 
+use std::collections::HashSet;
 use mio::*;
 use mio::net::{TcpListener};
 use slab::Slab;
 use ::connection::{Connection, ReadResult, ConnectionError};
-use ::server::{Server};
+use ::server::{Server, ServerResult};
 
 const SERVER: Token = Token(std::usize::MAX - 1);
+
+type ClosedTokens = HashSet<usize>;
+enum EventResult { None, ReadResult(ReadResult), DisconnectConnection }
 
 fn main() {
     let addr = "127.0.0.1:1935".parse().unwrap();
@@ -29,58 +33,99 @@ fn main() {
         poll.poll(&mut events, None).unwrap();
 
         for event in events.iter() {
+            let mut connections_to_close = ClosedTokens::new();
+
             match event.token() {
                 SERVER => {
                     let (socket, _) = listener.accept().unwrap();
                     let mut connection = Connection::new(socket);
                     let token = connections.insert(connection);
+
+                    println!("New connection (id {})", token);
+
                     connections[token].token = Some(Token(token));
                     connections[token].register(&mut poll).unwrap();
                 },
 
                 Token(token) => {
-                    let mut should_close_connection = false;
-                    {
-                        let mut connection = match connections.get_mut(token) {
-                            Some(connection) => connection,
-                            None => continue,
-                        };
-
-                        if event.readiness().is_readable() {
-                            match connection.readable(&mut poll) {
-                                Ok(ReadResult::HandshakingInProgress) => (),
-                                Ok(ReadResult::NoBytesReceived) => (),
-                                Ok(ReadResult::BytesReceived {buffer, byte_count}) => {
-                                    match server.bytes_received(token, &buffer[..byte_count]) {
-                                        Ok(mut results) => {
-                                            for result in results.drain(..) {
-                                                println!("Server result: {:?}", result);
-                                            }
-                                        },
-
-                                        Err(error) => {
-                                            should_close_connection = true;
-                                            println!("Input caused the following error: {}", error);
-                                        },
-                                    }
+                    match process_event(&event.readiness(), &mut connections, token, &mut poll) {
+                        EventResult::None => (),
+                        EventResult::ReadResult(result) => {
+                            match result {
+                                ReadResult::HandshakingInProgress => (),
+                                ReadResult::NoBytesReceived => (),
+                                ReadResult::BytesReceived {buffer, byte_count} => {
+                                    connections_to_close = handle_read_bytes(&buffer[..byte_count],
+                                        token,
+                                        &mut server,
+                                        &mut connections,
+                                        &mut poll);
                                 },
-
-                                Err(ConnectionError::SocketClosed) => should_close_connection = true,
-                                Err(x) => panic!("Error occurred: {:?}", x),
                             }
-                        }
+                        },
 
-                        if event.readiness().is_writable() {
-                            connection.writable(&mut poll).unwrap();
-                        }
-                    }
-
-                    if should_close_connection {
-                        println!("Connection closed");
-                        connections.remove(token);
+                        EventResult::DisconnectConnection => {
+                            connections_to_close.insert(token);
+                        },
                     }
                 }
             }
+
+            for token in connections_to_close {
+                println!("Closing connection id {}", token);
+                connections.remove(token);
+            }
         }
     }
+}
+
+fn process_event(event: &Ready, connections: &mut Slab<Connection>, token: usize, poll: &mut Poll) -> EventResult {
+    let connection = match connections.get_mut(token) {
+        Some(connection) => connection,
+        None => return EventResult::None,
+    };
+
+    if event.is_writable() {
+        connection.writable(poll).unwrap();
+    }
+
+    if event.is_readable() {
+        match connection.readable(poll) {
+            Ok(result) => return EventResult::ReadResult(result),
+            Err(ConnectionError::SocketClosed) => return EventResult::DisconnectConnection,
+            Err(x) => panic!("Error occurred: {:?}", x),
+        }
+    }
+
+    EventResult::None
+}
+
+fn handle_read_bytes(bytes: &[u8],
+                     from_token: usize,
+                     server: &mut Server,
+                     connections: &mut Slab<Connection>,
+                     poll: &mut Poll) -> ClosedTokens {
+    let mut closed_tokens = ClosedTokens::new();
+
+    let mut server_results = match server.bytes_received(from_token, bytes) {
+        Ok(results) => results,
+        Err(error) => {
+            println!("Input caused the following server error: {}", error);
+            closed_tokens.insert(from_token);
+            return closed_tokens;
+        }
+    };
+
+    for result in server_results.drain(..) {
+        match result {
+            ServerResult::OutboundPacket {target_connection_id, packet} => {
+                match connections.get_mut(target_connection_id) {
+                    Some(connection) => connection.enqueue_response(poll, packet.bytes).unwrap(),
+                    None => (),
+                }
+            },
+        }
+    }
+
+    closed_tokens
 }
