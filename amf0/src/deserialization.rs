@@ -9,6 +9,11 @@ use errors::Amf0DeserializationError;
 use markers;
 use byteorder::{BigEndian, ReadBytesExt};
 
+struct ObjectProperty {
+    label: String,
+    value: Amf0Value,
+}
+
 /// Turns any readable byte stream and converts it into an array of AMF0 values
 pub fn deserialize(bytes: &mut Read) -> Result<Vec<Amf0Value>, Amf0DeserializationError> {
     let mut results = vec![];
@@ -40,6 +45,7 @@ fn read_next_value(bytes: &mut Read) -> Result<Option<Amf0Value>, Amf0Deserializ
         markers::NULL_MARKER => parse_null().map(Some),
         markers::NUMBER_MARKER => parse_number(bytes).map(Some),
         markers::OBJECT_MARKER => parse_object(bytes).map(Some),
+        markers::ECMA_ARRAY_MARKER => parse_ecma_array(bytes).map(Some),
         markers::STRING_MARKER => parse_string(bytes).map(Some),
         _ => Err(Amf0DeserializationError::UnknownMarker{ marker: buffer[0] })
     }
@@ -80,30 +86,57 @@ fn parse_object(bytes: &mut Read) -> Result<Amf0Value, Amf0DeserializationError>
     let mut properties = HashMap::new();
 
     loop {
-        let label_length = bytes.read_u16::<BigEndian>()?;
-        if label_length == 0 {
-            // Next byte should be the end of object marker.  We need to read this
-            // to make sure we progress the current position.
-            let byte = bytes.read_u8()?;
-            if byte != markers::OBJECT_END_MARKER {
-                return Err(Amf0DeserializationError::UnexpectedEmptyObjectPropertyName);
-            }
-
-            break;
-        }
-
-        let mut label_buffer = vec![0; (label_length as usize)];
-        bytes.read(&mut label_buffer)?;
-
-        let label = String::from_utf8(label_buffer)?;
-        match read_next_value(bytes)? {
-            Some(property_value) => properties.insert(label, property_value),
-            None => return Err(Amf0DeserializationError::UnexpectedEof)
+        match parse_object_property(bytes)? {
+            Some(property) => properties.insert(property.label, property.value),
+            None => break,
         };
     }
 
     let deserialized_value = Amf0Value::Object(properties);
     Ok(deserialized_value)
+}
+
+fn parse_ecma_array(bytes: &mut Read) -> Result<Amf0Value, Amf0DeserializationError> {
+    // An ECMA array is an array of values indexed via strings instead of numeric indexes (so
+    // essentially a hash map).  It seems functionally equivalent to an object so for simplicity
+    // treat it as such.
+
+    // While the spec says it gives you the count of items in the array, it is vague about if
+    // the object end marker is used.  In real world usages I have found the associative array
+    // actually ends with a 0x000009 ending (same as objects do).  If we don't consume this
+    // then the buffer will start at that ending and funky things will happen.  So for now it seems
+    // like we can ignore the associative count and just read exactly as we would an object.
+
+    let _associative_count = bytes.read_u32::<BigEndian>()?;
+    parse_object(bytes)
+}
+
+fn parse_object_property(bytes: &mut Read) -> Result<Option<ObjectProperty>, Amf0DeserializationError> {
+    let label_length = bytes.read_u16::<BigEndian>()?;
+    if label_length == 0 {
+        // Next byte should be the end of object marker.  We need to read this
+        // to make sure we progress the current position.
+        let byte = bytes.read_u8()?;
+        if byte != markers::OBJECT_END_MARKER {
+            return Err(Amf0DeserializationError::UnexpectedEmptyObjectPropertyName);
+        }
+
+        return Ok(None);
+    }
+
+    let mut label_buffer = vec![0; (label_length as usize)];
+    bytes.read(&mut label_buffer)?;
+
+    let label = String::from_utf8(label_buffer)?;
+    match read_next_value(bytes)? {
+        None => Err(Amf0DeserializationError::UnexpectedEof),
+        Some(property_value) => {
+            Ok(Some(ObjectProperty {
+                label,
+                value: property_value,
+            }))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +235,34 @@ mod tests {
 
         let mut properties = HashMap::new();
         properties.insert("test".to_string(), Amf0Value::Number(NUMBER));
+
+        let expected = vec![Amf0Value::Object(properties)];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn can_deserialize_emca_array() {
+        let mut vector = vec![];
+        vector.push(markers::ECMA_ARRAY_MARKER);
+        vector.write_u32::<BigEndian>(2).unwrap();
+        vector.write_u16::<BigEndian>(5).unwrap();
+        vector.extend("test1".as_bytes());
+        vector.push(markers::NUMBER_MARKER);
+        vector.write_f64::<BigEndian>(1.0).unwrap();
+        vector.write_u16::<BigEndian>(5).unwrap();
+        vector.extend("test2".as_bytes());
+        vector.write_u8(markers::STRING_MARKER).unwrap();
+        vector.write_u16::<BigEndian>(6).unwrap();
+        vector.extend("second".as_bytes());
+        vector.write_u16::<BigEndian>(markers::UTF_8_EMPTY_MARKER).unwrap();
+        vector.push(markers::OBJECT_END_MARKER);
+
+        let mut input = Cursor::new(vector);
+        let result = deserialize(&mut input).unwrap();
+
+        let mut properties = HashMap::new();
+        properties.insert("test1".to_string(), Amf0Value::Number(1.0));
+        properties.insert("test2".to_string(), Amf0Value::Utf8String("second".to_string()));
 
         let expected = vec![Amf0Value::Object(properties)];
         assert_eq!(result, expected);

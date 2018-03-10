@@ -20,11 +20,11 @@ pub enum MessageDeserializationErrorKind {
 
     /// The bytes in the message that were expected to be AMF0 values were not properly encoded,
     /// and thus could not be read
-    #[fail(display = "The message did no contain valid Amf0 encoded values")]
+    #[fail(display = "The message did no contain valid Amf0 encoded values: {}", _0)]
     Amf0DeserializationError(#[cause] Amf0DeserializationError),
 
     /// Failed to read the values from the input buffer
-    #[fail(display = "An IO error occurred while reading the input")]
+    #[fail(display = "An IO error occurred while reading the input: {}", _0)]
     Io(#[cause] io::Error)
 }
 
