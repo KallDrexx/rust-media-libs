@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use slab::Slab;
 use rml_rtmp::sessions::{ServerSession, ServerSessionConfig, ServerSessionResult, ServerSessionEvent};
+use rml_rtmp::sessions::StreamMetadata;
 use rml_rtmp::chunk_io::Packet;
 
 enum ClientAction {
@@ -17,6 +19,7 @@ struct Client {
 struct MediaChannel {
     publishing_client_id: Option<usize>,
     watching_client_ids: HashSet<usize>,
+    metadata: Option<Rc<StreamMetadata>>,
 }
 
 #[derive(Debug)]
@@ -129,7 +132,11 @@ impl Server {
                 self.handle_play_requested(executed_connection_id, request_id, app_name, stream_key, server_results);
             },
 
-            ServerSessionEvent::VideoDataReceived {app_name: _, stream_key, data, timestamp} => {
+            ServerSessionEvent::StreamMetadataChanged {app_name, stream_key, metadata} => {
+                self.handle_metadata_received(app_name, stream_key, metadata);
+            },
+
+            ServerSessionEvent::VideoDataReceived {app_name: _, stream_key: _, data: _, timestamp: _} => {
                 
             },
 
@@ -200,6 +207,7 @@ impl Server {
                 .or_insert(MediaChannel {
                     publishing_client_id: None,
                     watching_client_ids: HashSet::new(),
+                    metadata: None,
                 });
 
             channel.publishing_client_id = Some(*client_id);
@@ -239,6 +247,7 @@ impl Server {
                 .or_insert(MediaChannel {
                     publishing_client_id: None,
                     watching_client_ids: HashSet::new(),
+                    metadata: None,
                 });
 
             channel.watching_client_ids.insert(*client_id);
@@ -259,6 +268,17 @@ impl Server {
         }
     }
 
+    fn handle_metadata_received(&mut self, app_name: String, stream_key: String, metadata: StreamMetadata) {
+        println!("New metadata received for app '{}' and stream key '{}'", app_name, stream_key);
+        let channel = match self.channels.get_mut(&stream_key) {
+            Some(channel) => channel,
+            None => return,
+        };
+
+        let metadata = Rc::new(metadata);
+        channel.metadata = Some(metadata);
+    }
+
     fn publishing_ended(&mut self, stream_key: String) {
         let channel = match self.channels.get_mut(&stream_key) {
             Some(channel) => channel,
@@ -266,6 +286,7 @@ impl Server {
         };
 
         channel.publishing_client_id = None;
+        channel.metadata = None;
     }
 
     fn play_ended(&mut self, client_id: usize, stream_key: String) {
