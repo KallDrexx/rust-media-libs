@@ -3,8 +3,19 @@ use slab::Slab;
 use rml_rtmp::sessions::{ServerSession, ServerSessionConfig, ServerSessionResult, ServerSessionEvent};
 use rml_rtmp::chunk_io::Packet;
 
+enum ClientAction {
+    Waiting,
+    Publishing(String), // Publishing to a stream key
+    //Watching(String), // Watching a stream key
+}
+
 struct Client {
     session: ServerSession,
+    current_action: ClientAction,
+}
+
+struct MediaChannel {
+    publishing_client_id: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -19,6 +30,7 @@ pub enum ServerResult {
 pub struct Server {
     clients: Slab<Client>,
     connection_to_client_map: HashMap<usize, usize>,
+    channels: HashMap<String, MediaChannel>,
 }
 
 impl Server {
@@ -26,6 +38,7 @@ impl Server {
         Server {
             clients: Slab::with_capacity(1024),
             connection_to_client_map: HashMap::with_capacity(1024),
+            channels: HashMap::new(),
         }
     }
 
@@ -40,7 +53,11 @@ impl Server {
             };
 
             self.handle_session_results(connection_id, initial_session_results, &mut server_results);
-            let client = Client {session};
+            let client = Client {
+                session,
+                current_action: ClientAction::Waiting,
+            };
+
             let client_id = Some(self.clients.insert(client));
             self.connection_to_client_map.insert(connection_id, client_id.unwrap());
         }
@@ -62,7 +79,14 @@ impl Server {
     pub fn notify_connection_closed(&mut self, connection_id: usize) {
         match self.connection_to_client_map.remove(&connection_id) {
             None => (),
-            Some(client_id) => {self.clients.remove(client_id);},
+            Some(client_id) => {
+                let client = self.clients.remove(client_id);
+                match client.current_action {
+                    ClientAction::Publishing(stream_key) => self.publishing_ended(stream_key),
+                    //ClientAction::Watching(_) => (),
+                    ClientAction::Waiting => (),
+                }
+            },
         }
     }
 
@@ -148,10 +172,27 @@ impl Server {
                                    server_results: &mut Vec<ServerResult>) {
         println!("Publish requested on app '{}' and stream key '{}'", app_name, stream_key);
 
+        match self.channels.get(&stream_key) {
+            None => (),
+            Some(channel) => match channel.publishing_client_id {
+                None => (),
+                Some(_) => {
+                    println!("Stream key already being published to");
+                    server_results.push(ServerResult::DisconnectConnection {connection_id: requested_connection_id});
+                    return;
+                }
+            }
+        }
+
         let accept_result;
         {
             let client_id = self.connection_to_client_map.get(&requested_connection_id).unwrap();
             let client = self.clients.get_mut(*client_id).unwrap();
+            let channel = MediaChannel {publishing_client_id: Some(*client_id)};
+
+            client.current_action = ClientAction::Publishing(stream_key.clone());
+            self.channels.insert(stream_key, channel);
+
             accept_result = client.session.accept_request(request_id);
         }
 
@@ -167,5 +208,14 @@ impl Server {
                 self.handle_session_results(requested_connection_id, results, server_results);
             }
         }
+    }
+
+    fn publishing_ended(&mut self, stream_key: String) {
+        let channel = match self.channels.get_mut(&stream_key) {
+            Some(channel) => channel,
+            None => return,
+        };
+
+        channel.publishing_client_id = None;
     }
 }
