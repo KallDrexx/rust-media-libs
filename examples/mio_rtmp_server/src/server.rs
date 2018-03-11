@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use slab::Slab;
 use rml_rtmp::sessions::{ServerSession, ServerSessionConfig, ServerSessionResult, ServerSessionEvent};
 use rml_rtmp::chunk_io::Packet;
@@ -6,7 +6,7 @@ use rml_rtmp::chunk_io::Packet;
 enum ClientAction {
     Waiting,
     Publishing(String), // Publishing to a stream key
-    //Watching(String), // Watching a stream key
+    Watching(String), // Watching a stream key
 }
 
 struct Client {
@@ -16,6 +16,7 @@ struct Client {
 
 struct MediaChannel {
     publishing_client_id: Option<usize>,
+    watching_client_ids: HashSet<usize>,
 }
 
 #[derive(Debug)]
@@ -83,7 +84,7 @@ impl Server {
                 let client = self.clients.remove(client_id);
                 match client.current_action {
                     ClientAction::Publishing(stream_key) => self.publishing_ended(stream_key),
-                    //ClientAction::Watching(_) => (),
+                    ClientAction::Watching(stream_key) => self.play_ended(client_id, stream_key),
                     ClientAction::Waiting => (),
                 }
             },
@@ -124,8 +125,12 @@ impl Server {
                 self.handle_publish_requested(executed_connection_id, request_id, app_name, stream_key, server_results);
             },
 
-            ServerSessionEvent::VideoDataReceived {app_name: _, stream_key: _, data: _, timestamp: _} => {
+            ServerSessionEvent::PlayStreamRequested {request_id, app_name, stream_key, start_at: _, duration: _, reset: _, stream_id: _} => {
+                self.handle_play_requested(executed_connection_id, request_id, app_name, stream_key, server_results);
+            },
 
+            ServerSessionEvent::VideoDataReceived {app_name: _, stream_key, data, timestamp} => {
+                
             },
 
             ServerSessionEvent::AudioDataReceived {app_name: _, stream_key: _, data: _, timestamp: _} => {
@@ -188,17 +193,61 @@ impl Server {
         {
             let client_id = self.connection_to_client_map.get(&requested_connection_id).unwrap();
             let client = self.clients.get_mut(*client_id).unwrap();
-            let channel = MediaChannel {publishing_client_id: Some(*client_id)};
-
             client.current_action = ClientAction::Publishing(stream_key.clone());
-            self.channels.insert(stream_key, channel);
 
+            let channel = self.channels
+                .entry(stream_key)
+                .or_insert(MediaChannel {
+                    publishing_client_id: None,
+                    watching_client_ids: HashSet::new(),
+                });
+
+            channel.publishing_client_id = Some(*client_id);
             accept_result = client.session.accept_request(request_id);
         }
 
         match accept_result {
             Err(error) => {
                 println!("Error occurred accepting publish request: {:?}", error);
+                server_results.push(ServerResult::DisconnectConnection {
+                    connection_id: requested_connection_id}
+                )
+            },
+
+            Ok(results) => {
+                self.handle_session_results(requested_connection_id, results, server_results);
+            }
+        }
+    }
+
+    fn handle_play_requested(&mut self,
+                             requested_connection_id: usize,
+                             request_id: u32,
+                             app_name: String,
+                             stream_key: String,
+                             server_results: &mut Vec<ServerResult>) {
+        println!("Play requested on app '{}' and stream key '{}'", app_name, stream_key);
+
+        let accept_result;
+        {
+            let client_id = self.connection_to_client_map.get(&requested_connection_id).unwrap();
+            let client = self.clients.get_mut(*client_id).unwrap();
+            client.current_action = ClientAction::Watching(stream_key.clone());
+
+            let channel = self.channels
+                .entry(stream_key)
+                .or_insert(MediaChannel {
+                    publishing_client_id: None,
+                    watching_client_ids: HashSet::new(),
+                });
+
+            channel.watching_client_ids.insert(*client_id);
+            accept_result = client.session.accept_request(request_id);
+        }
+
+        match accept_result {
+            Err(error) => {
+                println!("Error occurred accepting playback request: {:?}", error);
                 server_results.push(ServerResult::DisconnectConnection {
                     connection_id: requested_connection_id}
                 )
@@ -217,5 +266,14 @@ impl Server {
         };
 
         channel.publishing_client_id = None;
+    }
+
+    fn play_ended(&mut self, client_id: usize, stream_key: String) {
+        let channel = match self.channels.get_mut(&stream_key) {
+            Some(channel) => channel,
+            None => return,
+        };
+
+        channel.watching_client_ids.remove(&client_id);
     }
 }
