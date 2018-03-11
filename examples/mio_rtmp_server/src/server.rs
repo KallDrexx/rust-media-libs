@@ -59,6 +59,13 @@ impl Server {
         Ok(server_results)
     }
 
+    pub fn notify_connection_closed(&mut self, connection_id: usize) {
+        match self.connection_to_client_map.remove(&connection_id) {
+            None => (),
+            Some(client_id) => {self.clients.remove(client_id);},
+        }
+    }
+
     fn handle_session_results(&mut self,
                               executed_connection_id: usize,
                               session_results: Vec<ServerSessionResult>,
@@ -91,6 +98,14 @@ impl Server {
 
             ServerSessionEvent::PublishStreamRequested {request_id, app_name, stream_key, mode: _} => {
                 self.handle_publish_requested(executed_connection_id, request_id, app_name, stream_key, server_results);
+            },
+
+            ServerSessionEvent::VideoDataReceived {app_name: _, stream_key: _, data: _, timestamp: _} => {
+
+            },
+
+            ServerSessionEvent::AudioDataReceived {app_name: _, stream_key: _, data: _, timestamp: _} => {
+
             },
 
             _ => println!("Event raised by connection {}: {:?}", executed_connection_id, event),

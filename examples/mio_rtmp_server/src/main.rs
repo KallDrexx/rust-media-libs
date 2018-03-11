@@ -74,6 +74,7 @@ fn main() {
             for token in connections_to_close {
                 println!("Closing connection id {}", token);
                 connections.remove(token);
+                server.notify_connection_closed(token);
             }
         }
     }
