@@ -87,7 +87,13 @@ fn process_event(event: &Ready, connections: &mut Slab<Connection>, token: usize
     };
 
     if event.is_writable() {
-        connection.writable(poll).unwrap();
+        match connection.writable(poll) {
+            Ok(_) => (),
+            Err(error) => {
+                println!("Error occurred while writing: {:?}", error);
+                return EventResult::DisconnectConnection
+            },
+        }
     }
 
     if event.is_readable() {

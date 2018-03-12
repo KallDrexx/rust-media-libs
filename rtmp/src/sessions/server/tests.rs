@@ -847,6 +847,66 @@ fn can_send_metadata_to_playing_stream() {
     }
 }
 
+#[test]
+fn can_send_video_data_to_playing_stream() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+    start_playing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+    let original_data = vec![1_u8, 2_u8, 3_u8];
+    let timestamp = RtmpTimestamp::new(500);
+    let packet = session.send_video_data(stream_id, original_data.to_vec(), timestamp.clone()).unwrap();
+    let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
+    let message = payload.to_rtmp_message().unwrap();
+
+    match message {
+        RtmpMessage::VideoData {data: message_data} => {
+            assert_eq!(payload.timestamp, timestamp, "Serialized timestamp did not match original timestamp");
+            assert_eq!(&message_data[..], &original_data[..], "Packetized data did not match original data");
+        },
+
+        x => panic!("Expected video data message, received: {:?}", x),
+    }
+}
+
+#[test]
+fn can_send_audio_data_to_playing_stream() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+    start_playing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+    let original_data = vec![1_u8, 2_u8, 3_u8];
+    let timestamp = RtmpTimestamp::new(500);
+    let packet = session.send_audio_data(stream_id, original_data.to_vec(), timestamp.clone()).unwrap();
+    let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
+    let message = payload.to_rtmp_message().unwrap();
+
+    match message {
+        RtmpMessage::AudioData {data: message_data} => {
+            assert_eq!(payload.timestamp, timestamp, "Serialized timestamp did not match original timestamp");
+            assert_eq!(&message_data[..], &original_data[..], "Packetized data did not match original data");
+        },
+
+        x => panic!("Expected video data message, received: {:?}", x),
+    }
+}
+
 fn get_basic_config() -> ServerSessionConfig {
     ServerSessionConfig {
         chunk_size: DEFAULT_CHUNK_SIZE,

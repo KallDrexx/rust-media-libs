@@ -251,6 +251,22 @@ impl ServerSession {
         Ok(packet)
     }
 
+    /// Prepare video data to be sent to the client
+    pub fn send_video_data(&mut self, stream_id: u32, data: Vec<u8>, timestamp: RtmpTimestamp) -> Result<Packet, ServerSessionError> {
+        let message = RtmpMessage::VideoData {data};
+        let payload = message.into_message_payload(timestamp, stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok(packet)
+    }
+
+    /// Prepare audio data to be sent to the client
+    pub fn send_audio_data(&mut self, stream_id: u32, data: Vec<u8>, timestamp: RtmpTimestamp) -> Result<Packet, ServerSessionError> {
+        let message = RtmpMessage::AudioData {data};
+        let payload = message.into_message_payload(timestamp, stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok(packet)
+    }
+
     fn handle_abort_message(&self, _stream_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         Ok(Vec::new())
     }

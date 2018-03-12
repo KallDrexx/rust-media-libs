@@ -145,7 +145,6 @@ impl Connection {
 
         match result {
             HandshakeProcessResult::InProgress {response_bytes} => {
-                println!("Handshake in progress");
                 if response_bytes.len() > 0 {
                     self.enqueue_response(poll, response_bytes)?;
                 }
@@ -154,7 +153,7 @@ impl Connection {
             },
 
             HandshakeProcessResult::Completed {response_bytes, remaining_bytes} => {
-                println!("Handshake completed!");
+                println!("Handshake successful!");
                 if response_bytes.len() > 0 {
                     self.enqueue_response(poll, response_bytes)?;
                 }
