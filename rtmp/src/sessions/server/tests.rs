@@ -783,6 +783,70 @@ fn play_finished_event_when_delete_stream_invoked_on_playing_stream() {
     }
 }
 
+#[test]
+fn can_send_metadata_to_playing_stream() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "stream_key".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+    start_playing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
+
+    let metadata = Rc::new(StreamMetadata {
+        audio_bitrate_kbps: Some(100),
+        audio_channels: Some(101),
+        audio_codec: Some("102".to_string()),
+        audio_is_stereo: Some(true),
+        audio_sample_rate: Some(103),
+        encoder: Some("104".to_string()),
+        video_bitrate_kbps: Some(105),
+        video_codec: Some("106".to_string()),
+        video_frame_rate: Some(107.0),
+        video_height: Some(108),
+        video_width: Some(109),
+    });
+
+    let packet = session.send_metadata(stream_id, metadata).unwrap();
+    let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
+    let message = payload.to_rtmp_message().unwrap();
+
+    match message {
+        RtmpMessage::Amf0Data {mut values} => {
+            assert_eq!(values.len(), 2, "2 amf0 data values expected");
+
+            match values.remove(0) {
+                Amf0Value::Utf8String(string) => {assert_eq!(string, "onMetaData");},
+                x => panic!("Expected 'onMetaData' received: {:?}", x),
+            }
+
+            match values.remove(0) {
+                Amf0Value::Object(properties) => {
+                    assert_eq!(properties.get("width"), Some(&Amf0Value::Number(109.0)), "Unexpected width");
+                    assert_eq!(properties.get("height"), Some(&Amf0Value::Number(108.0)), "Unexpected height");
+                    assert_eq!(properties.get("videocodecid"), Some(&Amf0Value::Utf8String("106".to_string())), "Unexpected videocodecid");
+                    assert_eq!(properties.get("videodatarate"), Some(&Amf0Value::Number(105.0)), "Unexpected videodatarate");
+                    assert_eq!(properties.get("framerate"), Some(&Amf0Value::Number(107.0)), "Unexpected framerate");
+                    assert_eq!(properties.get("audiocodecid"), Some(&Amf0Value::Utf8String("102".to_string())), "Unexpected audiocodecid");
+                    assert_eq!(properties.get("audiodatarate"), Some(&Amf0Value::Number(100.0)), "Unexpected audiodatarate");
+                    assert_eq!(properties.get("audiosamplerate"), Some(&Amf0Value::Number(103.0)), "Unexpected audiosamplerate");
+                    assert_eq!(properties.get("audiochannels"), Some(&Amf0Value::Number(101.0)), "Unexpected audiochannels");
+                    assert_eq!(properties.get("stereo"), Some(&Amf0Value::Boolean(true)), "Unexpected stereo");
+                    assert_eq!(properties.get("encoder"), Some(&Amf0Value::Utf8String("104".to_string())), "Unexpected encoder");
+                },
+
+                x => panic!("Expected Amf0 object with metadata, instead received: {:?}", x),
+            }
+        },
+
+        x => panic!("Expected Amf0 data, instead received: {:?}", x),
+    }
+}
+
 fn get_basic_config() -> ServerSessionConfig {
     ServerSessionConfig {
         chunk_size: DEFAULT_CHUNK_SIZE,

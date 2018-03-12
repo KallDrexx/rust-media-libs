@@ -12,6 +12,7 @@ mod tests;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
+use std::rc::Rc;
 use rml_amf0::Amf0Value;
 use ::chunk_io::{ChunkSerializer, ChunkDeserializer, Packet};
 use ::messages::{RtmpMessage, UserControlEventType, PeerBandwidthLimitType};
@@ -198,6 +199,56 @@ impl ServerSession {
     /// Tells the server session that it should reject an outstanding request
     pub fn reject_request(&mut self, _request_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         unimplemented!()
+    }
+
+    /// Prepares metadata information to be sent to the client
+    pub fn send_metadata(&mut self, stream_id: u32, metadata: Rc<StreamMetadata>) -> Result<Packet, ServerSessionError> {
+        let mut properties = HashMap::with_capacity(11);
+
+        metadata.video_width
+            .map(|x| properties.insert("width".to_string(), Amf0Value::Number(x as f64)));
+
+        metadata.video_height
+            .map(|x| properties.insert("height".to_string(), Amf0Value::Number(x as f64)));
+
+        metadata.video_codec
+            .as_ref()
+            .map(|x| properties.insert("videocodecid".to_string(), Amf0Value::Utf8String(x.clone())));
+
+        metadata.video_bitrate_kbps
+            .map(|x| properties.insert("videodatarate".to_string(), Amf0Value::Number(x as f64)));
+
+        metadata.video_frame_rate
+            .map(|x| properties.insert("framerate".to_string(), Amf0Value::Number(x as f64)));
+
+        metadata.audio_codec
+            .as_ref()
+            .map(|x| properties.insert("audiocodecid".to_string(), Amf0Value::Utf8String(x.clone())));
+
+        metadata.audio_bitrate_kbps
+            .map(|x| properties.insert("audiodatarate".to_string(), Amf0Value::Number(x as f64)));
+
+        metadata.audio_sample_rate
+            .map(|x| properties.insert("audiosamplerate".to_string(), Amf0Value::Number(x as f64)));
+
+        metadata.audio_channels
+            .map(|x| properties.insert("audiochannels".to_string(), Amf0Value::Number(x as f64)));
+
+        metadata.audio_is_stereo
+            .map(|x| properties.insert("stereo".to_string(), Amf0Value::Boolean(x)));
+
+        metadata.encoder
+            .as_ref()
+            .map(|x| properties.insert("encoder".to_string(), Amf0Value::Utf8String(x.clone())));
+
+        let message = RtmpMessage::Amf0Data {values: vec![
+            Amf0Value::Utf8String("onMetaData".to_string()),
+            Amf0Value::Object(properties),
+        ]};
+
+        let payload = message.into_message_payload(self.get_epoch(), stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok(packet)
     }
 
     fn handle_abort_message(&self, _stream_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {

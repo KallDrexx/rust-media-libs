@@ -8,12 +8,26 @@ use rml_rtmp::chunk_io::Packet;
 enum ClientAction {
     Waiting,
     Publishing(String), // Publishing to a stream key
-    Watching(String), // Watching a stream key
+    Watching {
+        stream_key: String,
+        stream_id: u32,
+    },
 }
 
 struct Client {
     session: ServerSession,
     current_action: ClientAction,
+    connection_id: usize,
+}
+
+impl Client {
+    fn get_active_stream_id(&self) -> Option<u32> {
+        match self.current_action {
+            ClientAction::Waiting => None,
+            ClientAction::Publishing(_) => None,
+            ClientAction::Watching {stream_key: _, stream_id} => Some(stream_id),
+        }
+    }
 }
 
 struct MediaChannel {
@@ -59,6 +73,7 @@ impl Server {
             self.handle_session_results(connection_id, initial_session_results, &mut server_results);
             let client = Client {
                 session,
+                connection_id,
                 current_action: ClientAction::Waiting,
             };
 
@@ -87,7 +102,7 @@ impl Server {
                 let client = self.clients.remove(client_id);
                 match client.current_action {
                     ClientAction::Publishing(stream_key) => self.publishing_ended(stream_key),
-                    ClientAction::Watching(stream_key) => self.play_ended(client_id, stream_key),
+                    ClientAction::Watching{stream_key, stream_id: _} => self.play_ended(client_id, stream_key),
                     ClientAction::Waiting => (),
                 }
             },
@@ -128,12 +143,12 @@ impl Server {
                 self.handle_publish_requested(executed_connection_id, request_id, app_name, stream_key, server_results);
             },
 
-            ServerSessionEvent::PlayStreamRequested {request_id, app_name, stream_key, start_at: _, duration: _, reset: _, stream_id: _} => {
-                self.handle_play_requested(executed_connection_id, request_id, app_name, stream_key, server_results);
+            ServerSessionEvent::PlayStreamRequested {request_id, app_name, stream_key, start_at: _, duration: _, reset: _, stream_id} => {
+                self.handle_play_requested(executed_connection_id, request_id, app_name, stream_key, stream_id, server_results);
             },
 
             ServerSessionEvent::StreamMetadataChanged {app_name, stream_key, metadata} => {
-                self.handle_metadata_received(app_name, stream_key, metadata);
+                self.handle_metadata_received(app_name, stream_key, metadata, server_results);
             },
 
             ServerSessionEvent::VideoDataReceived {app_name: _, stream_key: _, data: _, timestamp: _} => {
@@ -233,6 +248,7 @@ impl Server {
                              request_id: u32,
                              app_name: String,
                              stream_key: String,
+                             stream_id: u32,
                              server_results: &mut Vec<ServerResult>) {
         println!("Play requested on app '{}' and stream key '{}'", app_name, stream_key);
 
@@ -240,10 +256,13 @@ impl Server {
         {
             let client_id = self.connection_to_client_map.get(&requested_connection_id).unwrap();
             let client = self.clients.get_mut(*client_id).unwrap();
-            client.current_action = ClientAction::Watching(stream_key.clone());
+            client.current_action = ClientAction::Watching {
+                stream_key: stream_key.clone(),
+                stream_id,
+            };
 
             let channel = self.channels
-                .entry(stream_key)
+                .entry(stream_key.clone())
                 .or_insert(MediaChannel {
                     publishing_client_id: None,
                     watching_client_ids: HashSet::new(),
@@ -251,7 +270,34 @@ impl Server {
                 });
 
             channel.watching_client_ids.insert(*client_id);
-            accept_result = client.session.accept_request(request_id);
+            accept_result = match client.session.accept_request(request_id) {
+                Err(error) => Err(error),
+                Ok(mut results) => {
+
+                    // If the channel already has existing metadata, send that to the new client
+                    // so they have up to date info
+                    match channel.metadata {
+                        None => (),
+                        Some(ref metadata) => {
+                            let packet = match client.session.send_metadata(stream_id, metadata.clone()) {
+                                Ok(packet) => packet,
+                                Err(error) => {
+                                    println!("Error occurred sending existing metadata to new client: {:?}", error);
+                                    server_results.push(ServerResult::DisconnectConnection {
+                                        connection_id: requested_connection_id}
+                                    );
+
+                                    return;
+                                },
+                            };
+
+                            results.push(ServerSessionResult::OutboundResponse(packet));
+                        }
+                    }
+
+                    Ok(results)
+                }
+            }
         }
 
         match accept_result {
@@ -259,7 +305,9 @@ impl Server {
                 println!("Error occurred accepting playback request: {:?}", error);
                 server_results.push(ServerResult::DisconnectConnection {
                     connection_id: requested_connection_id}
-                )
+                );
+
+                return;
             },
 
             Ok(results) => {
@@ -268,7 +316,11 @@ impl Server {
         }
     }
 
-    fn handle_metadata_received(&mut self, app_name: String, stream_key: String, metadata: StreamMetadata) {
+    fn handle_metadata_received(&mut self,
+                                app_name: String,
+                                stream_key: String,
+                                metadata: StreamMetadata,
+                                server_results: &mut Vec<ServerResult>) {
         println!("New metadata received for app '{}' and stream key '{}'", app_name, stream_key);
         let channel = match self.channels.get_mut(&stream_key) {
             Some(channel) => channel,
@@ -276,7 +328,36 @@ impl Server {
         };
 
         let metadata = Rc::new(metadata);
-        channel.metadata = Some(metadata);
+        channel.metadata = Some(metadata.clone());
+
+        // Send the metadata to all current watchers
+        for client_id in &channel.watching_client_ids {
+            let client = match self.clients.get_mut(*client_id) {
+                Some(client) => client,
+                None => continue,
+            };
+
+            let active_stream_id = match client.get_active_stream_id() {
+                Some(stream_id) => stream_id,
+                None => continue,
+            };
+
+            match client.session.send_metadata(active_stream_id, metadata.clone()) {
+                Ok(packet) => {
+                    server_results.push(ServerResult::OutboundPacket {
+                        target_connection_id: client.connection_id,
+                        packet,
+                    })
+                },
+
+                Err(error) => {
+                    println!("Error sending metadata to client on connection id {}: {:?}", client.connection_id, error);
+                    server_results.push(ServerResult::DisconnectConnection {
+                        connection_id: client.connection_id
+                    });
+                },
+            }
+        }
     }
 
     fn publishing_ended(&mut self, stream_key: String) {
