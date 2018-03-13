@@ -22,6 +22,7 @@ struct Client {
     current_action: ClientAction,
     connection_id: usize,
     has_received_video_keyframe: bool,
+    starting_timestamp: Option<RtmpTimestamp>,
 }
 
 impl Client {
@@ -82,6 +83,7 @@ impl Server {
                 connection_id,
                 current_action: ClientAction::Waiting,
                 has_received_video_keyframe: false,
+                starting_timestamp: None,
             };
 
             let client_id = Some(self.clients.insert(client));
@@ -459,14 +461,21 @@ impl Server {
                 continue;
             }
 
+            if client.starting_timestamp.is_none() {
+                client.starting_timestamp = Some(timestamp.clone());
+            }
+
+            let client_timestamp = timestamp - *(client.starting_timestamp.as_ref().unwrap());
+            //println!("timestamps: {:?} - {:?} = {:?}", timestamp, client.starting_timestamp.as_ref(), client_timestamp);
+
             let send_result = match data_type {
-                ReceivedDataType::Audio => client.session.send_audio_data(active_stream_id, data.to_vec(), timestamp.clone()),
+                ReceivedDataType::Audio => client.session.send_audio_data(active_stream_id, data.to_vec(), client_timestamp.clone()),
                 ReceivedDataType::Video => {
                     if is_video_keyframe(&data) {
                         client.has_received_video_keyframe = true;
                     }
 
-                    client.session.send_video_data(active_stream_id, data.to_vec(), timestamp.clone())
+                    client.session.send_video_data(active_stream_id, data.to_vec(), client_timestamp.clone())
                 },
             };
 
