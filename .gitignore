@@ -1,3 +1,5 @@
+examples/mio_rtmp_server/logs/
+
 # Remove intellij files
 .idea/
 *.iml

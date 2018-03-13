@@ -28,6 +28,7 @@ fn main() {
     let mut events = Events::with_capacity(1024);
     let mut connections = Slab::new();
     let mut server = Server::new();
+    let mut count = 1;
 
     loop {
         poll.poll(&mut events, None).unwrap();
@@ -38,8 +39,10 @@ fn main() {
             match event.token() {
                 SERVER => {
                     let (socket, _) = listener.accept().unwrap();
-                    let mut connection = Connection::new(socket);
+                    let mut connection = Connection::new(socket, count, false);
                     let token = connections.insert(connection);
+
+                    count += 1;
 
                     println!("New connection (id {})", token);
 

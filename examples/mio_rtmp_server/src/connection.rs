@@ -1,9 +1,14 @@
 use std::io;
 use std::io::{Read, Write};
+use std::fs;
+use std::fs::File;
 use std::collections::VecDeque;
+use std::time::{SystemTime, UNIX_EPOCH};
 use mio::{Token, Ready, Poll, PollOpt};
 use mio::net::TcpStream;
 use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
+use rml_rtmp::chunk_io::{ChunkDeserializer};
+use rml_rtmp::messages::RtmpMessage;
 
 const BUFFER_SIZE: usize = 4096;
 
@@ -36,10 +41,27 @@ pub struct Connection {
     has_been_registered: bool,
     handshake: Handshake,
     handshake_completed: bool,
+    debug_file: Option<File>,
+    debug_deserializer: Option<ChunkDeserializer>,
 }
 
 impl Connection {
-    pub fn new(socket: TcpStream) -> Connection {
+    pub fn new(socket: TcpStream, count: usize, log_debug_logic: bool) -> Connection {
+        let (debug_file, deserializer) = match log_debug_logic {
+            true => {
+                fs::create_dir_all("logs").unwrap();
+
+                let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                let seconds = duration.as_secs();
+                let name = format!("logs/{}-{}.log", seconds, count);
+                let file = File::create(name).unwrap();
+                let deserializer = ChunkDeserializer::new();
+                (Some(file), Some(deserializer))
+            },
+
+            false => (None, None),
+        };
+
         Connection {
             socket,
             token: None,
@@ -48,6 +70,8 @@ impl Connection {
             has_been_registered: false,
             handshake: Handshake::new(PeerType::Server),
             handshake_completed: false,
+            debug_deserializer: deserializer,
+            debug_file,
         }
     }
 
@@ -102,6 +126,38 @@ impl Connection {
 
         match self.socket.write(&message) {
             Ok(_bytes_sent) => {
+                if self.handshake_completed && self.debug_file.is_some() {
+                    match self.debug_deserializer.as_mut().unwrap().get_next_message(&message).unwrap() {
+                        Some(payload) => {
+                            let inner_message = payload.to_rtmp_message().unwrap();
+                            writeln!(self.debug_file.as_mut().unwrap(), "{:?}", payload).unwrap();
+
+                            match inner_message {
+                                RtmpMessage::VideoData {data} => {
+                                    let output = format!("VideoData {{ data: [{}, {}, ..] }}", data[0], data[1]);
+                                    writeln!(self.debug_file.as_mut().unwrap(), "{}", output).unwrap();
+                                },
+
+                                RtmpMessage::AudioData {data} => {
+                                    let output = format!("AudioData {{ data: [{}, {}, ..] }}", data[0], data[1]);
+                                    writeln!(self.debug_file.as_mut().unwrap(), "{}", output).unwrap();
+                                },
+
+                                RtmpMessage::SetChunkSize {size} => {
+                                    writeln!(self.debug_file.as_mut().unwrap(), "{:?}", inner_message).unwrap();
+                                    self.debug_deserializer
+                                        .as_mut()
+                                        .unwrap()
+                                        .set_max_chunk_size(size as usize)
+                                        .unwrap();
+                                },
+
+                                x => writeln!(self.debug_file.as_mut().unwrap(), "{:?}", x).unwrap(),
+                            }
+                        },
+                        None => (),
+                    }
+                }
             },
 
             Err(error) => {

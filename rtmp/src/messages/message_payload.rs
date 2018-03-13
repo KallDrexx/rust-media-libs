@@ -1,15 +1,26 @@
+use std::fmt;
 use ::time::RtmpTimestamp;
 use ::messages::{MessageDeserializationError, MessageSerializationError};
 use ::messages::RtmpMessage;
 use super::types;
 
 /// Represents a raw RTMP message
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 pub struct MessagePayload {
     pub timestamp: RtmpTimestamp,
     pub type_id: u8,
     pub message_stream_id: u32,
     pub data: Vec<u8>,
+}
+
+impl fmt::Debug for MessagePayload {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+               "MessagePayload {{ timestamp: {:?}, type_id: {:?}, message_stream_id: {:?}, data: [..] }}",
+               self.timestamp,
+               self.type_id,
+               self.message_stream_id)
+    }
 }
 
 impl MessagePayload {
