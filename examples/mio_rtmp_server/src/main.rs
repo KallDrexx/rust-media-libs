@@ -18,7 +18,7 @@ type ClosedTokens = HashSet<usize>;
 enum EventResult { None, ReadResult(ReadResult), DisconnectConnection }
 
 fn main() {
-    let addr = "127.0.0.1:1935".parse().unwrap();
+    let addr = "0.0.0.0:1935".parse().unwrap();
     let listener = TcpListener::bind(&addr).unwrap();
     let mut poll = Poll::new().unwrap();
 
@@ -103,7 +103,10 @@ fn process_event(event: &Ready, connections: &mut Slab<Connection>, token: usize
         match connection.readable(poll) {
             Ok(result) => return EventResult::ReadResult(result),
             Err(ConnectionError::SocketClosed) => return EventResult::DisconnectConnection,
-            Err(x) => panic!("Error occurred: {:?}", x),
+            Err(x) => {
+                println!("Error occurred: {:?}", x);
+                return EventResult::DisconnectConnection;
+            },
         }
     }
 
@@ -130,7 +133,7 @@ fn handle_read_bytes(bytes: &[u8],
         match result {
             ServerResult::OutboundPacket {target_connection_id, packet} => {
                 match connections.get_mut(target_connection_id) {
-                    Some(connection) => connection.enqueue_response(poll, packet.bytes).unwrap(),
+                    Some(connection) => connection.enqueue_packet(poll, packet).unwrap(),
                     None => (),
                 }
             },

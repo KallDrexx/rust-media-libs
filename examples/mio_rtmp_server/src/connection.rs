@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mio::{Token, Ready, Poll, PollOpt};
 use mio::net::TcpStream;
 use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
-use rml_rtmp::chunk_io::{ChunkDeserializer};
+use rml_rtmp::chunk_io::{ChunkDeserializer, Packet};
 use rml_rtmp::messages::RtmpMessage;
 
 const BUFFER_SIZE: usize = 4096;
@@ -43,6 +43,7 @@ pub struct Connection {
     handshake_completed: bool,
     debug_file: Option<File>,
     debug_deserializer: Option<ChunkDeserializer>,
+    started_at: SystemTime,
 }
 
 impl Connection {
@@ -72,6 +73,7 @@ impl Connection {
             handshake_completed: false,
             debug_deserializer: deserializer,
             debug_file,
+            started_at: SystemTime::now(),
         }
     }
 
@@ -80,6 +82,15 @@ impl Connection {
         self.interest.insert(Ready::writable());
         self.register(poll)?;
         Ok(())
+    }
+
+    pub fn enqueue_packet(&mut self, poll: &mut Poll, packet: Packet) -> io::Result<()> {
+        if packet.can_be_dropped && self.send_queue.len() > 10 {
+            println!("Dropped packet at {} (size {})", self.started_at.elapsed().unwrap().as_secs(), self.send_queue.len());
+            Ok(())
+        } else {
+            self.enqueue_response(poll, packet.bytes)
+        }
     }
 
     pub fn readable(&mut self, poll: &mut Poll) -> Result<ReadResult, ConnectionError> {
@@ -134,12 +145,12 @@ impl Connection {
 
                             match inner_message {
                                 RtmpMessage::VideoData {data} => {
-                                    let output = format!("VideoData {{ data: [{}, {}, ..] }}", data[0], data[1]);
+                                    let output = format!("VideoData {{ data: [0x{:x}, 0x{:x}, 0x{:x}, 0x{:x}, 0x{:x}, ..] }}", data[0], data[1], data[2], data[3], data[4]);
                                     writeln!(self.debug_file.as_mut().unwrap(), "{}", output).unwrap();
                                 },
 
                                 RtmpMessage::AudioData {data} => {
-                                    let output = format!("AudioData {{ data: [{}, {}, ..] }}", data[0], data[1]);
+                                    let output = format!("AudioData {{ data: [0x{:x}, 0x{:x}, ..] }}", data[0], data[1]);
                                     writeln!(self.debug_file.as_mut().unwrap(), "{}", output).unwrap();
                                 },
 

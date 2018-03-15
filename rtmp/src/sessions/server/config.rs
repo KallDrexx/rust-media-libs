@@ -12,7 +12,7 @@ impl ServerSessionConfig {
     /// Creates a new server session config with overridable defaults
     pub fn new() -> ServerSessionConfig {
         ServerSessionConfig {
-            fms_version: "FMS/3,0,1,123".to_string(),
+            fms_version: "FMS/3,0,1,1233".to_string(),
             peer_bandwidth: 2_500_000,
             window_ack_size: 1_073_741_824,
             chunk_size: 4096,

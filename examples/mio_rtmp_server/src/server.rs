@@ -307,13 +307,13 @@ impl Server {
                     }
 
                     // If the channel already has sequence headers, send them
-                    match channel.audio_sequence_header {
+                    match channel.video_sequence_header {
                         None => (),
                         Some(ref data) => {
-                            let packet = match client.session.send_audio_data(stream_id, data.clone(), RtmpTimestamp::new(0)) {
+                            let packet = match client.session.send_video_data(stream_id, data.clone(), RtmpTimestamp::new(0), false) {
                                 Ok(packet) => packet,
                                 Err(error) => {
-                                    println!("Error occurred sending audio header to new client: {:?}", error);
+                                    println!("Error occurred sending video header to new client: {:?}", error);
                                     server_results.push(ServerResult::DisconnectConnection {
                                         connection_id: requested_connection_id}
                                     );
@@ -326,13 +326,13 @@ impl Server {
                         }
                     }
 
-                    match channel.video_sequence_header {
+                    match channel.audio_sequence_header {
                         None => (),
                         Some(ref data) => {
-                            let packet = match client.session.send_video_data(stream_id, data.clone(), RtmpTimestamp::new(0)) {
+                            let packet = match client.session.send_audio_data(stream_id, data.clone(), RtmpTimestamp::new(0), false) {
                                 Ok(packet) => packet,
                                 Err(error) => {
-                                    println!("Error occurred sending video header to new client: {:?}", error);
+                                    println!("Error occurred sending audio header to new client: {:?}", error);
                                     server_results.push(ServerResult::DisconnectConnection {
                                         connection_id: requested_connection_id}
                                     );
@@ -460,13 +460,13 @@ impl Server {
             }
 
             let send_result = match data_type {
-                ReceivedDataType::Audio => client.session.send_audio_data(active_stream_id, data.to_vec(), timestamp.clone()),
+                ReceivedDataType::Audio => client.session.send_audio_data(active_stream_id, data.to_vec(), timestamp.clone(), true),
                 ReceivedDataType::Video => {
                     if is_video_keyframe(&data) {
                         client.has_received_video_keyframe = true;
                     }
 
-                    client.session.send_video_data(active_stream_id, data.to_vec(), timestamp.clone())
+                    client.session.send_video_data(active_stream_id, data.to_vec(), timestamp.clone(), true)
                 },
             };
 

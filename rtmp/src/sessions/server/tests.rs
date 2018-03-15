@@ -863,7 +863,7 @@ fn can_send_video_data_to_playing_stream() {
 
     let original_data = vec![1_u8, 2_u8, 3_u8];
     let timestamp = RtmpTimestamp::new(500);
-    let packet = session.send_video_data(stream_id, original_data.to_vec(), timestamp.clone()).unwrap();
+    let packet = session.send_video_data(stream_id, original_data.to_vec(), timestamp.clone(), false).unwrap();
     let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
     let message = payload.to_rtmp_message().unwrap();
 
@@ -893,7 +893,7 @@ fn can_send_audio_data_to_playing_stream() {
 
     let original_data = vec![1_u8, 2_u8, 3_u8];
     let timestamp = RtmpTimestamp::new(500);
-    let packet = session.send_audio_data(stream_id, original_data.to_vec(), timestamp.clone()).unwrap();
+    let packet = session.send_audio_data(stream_id, original_data.to_vec(), timestamp.clone(), false).unwrap();
     let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
     let message = payload.to_rtmp_message().unwrap();
 

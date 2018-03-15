@@ -252,18 +252,18 @@ impl ServerSession {
     }
 
     /// Prepare video data to be sent to the client
-    pub fn send_video_data(&mut self, stream_id: u32, data: Vec<u8>, timestamp: RtmpTimestamp) -> Result<Packet, ServerSessionError> {
+    pub fn send_video_data(&mut self, stream_id: u32, data: Vec<u8>, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<Packet, ServerSessionError> {
         let message = RtmpMessage::VideoData {data};
         let payload = message.into_message_payload(timestamp, stream_id)?;
-        let packet = self.serializer.serialize(&payload, false, false)?;
+        let packet = self.serializer.serialize(&payload, false, can_be_dropped)?;
         Ok(packet)
     }
 
     /// Prepare audio data to be sent to the client
-    pub fn send_audio_data(&mut self, stream_id: u32, data: Vec<u8>, timestamp: RtmpTimestamp) -> Result<Packet, ServerSessionError> {
+    pub fn send_audio_data(&mut self, stream_id: u32, data: Vec<u8>, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<Packet, ServerSessionError> {
         let message = RtmpMessage::AudioData {data};
         let payload = message.into_message_payload(timestamp, stream_id)?;
-        let packet = self.serializer.serialize(&payload, false, false)?;
+        let packet = self.serializer.serialize(&payload, false, can_be_dropped)?;
         Ok(packet)
     }
 
