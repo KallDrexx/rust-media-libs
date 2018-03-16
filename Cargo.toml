@@ -4,4 +4,5 @@ members = [
 	"rtmp",
 	"tools/handshake-tester",
 	"examples/mio_rtmp_server",
+	"examples/threaded_rtmp_server",
 ]

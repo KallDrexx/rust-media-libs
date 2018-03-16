@@ -1,0 +1,10 @@
+[package]
+name = "threaded_rtmp_server"
+version = "0.1.0"
+authors = ["Matthew Shapiro <me@mshapiro.net>"]
+description = "Simple RTMP server utilizing threaded socket communication"
+
+[dependencies]
+slab = "0.4.0"
+bytes = "0.4.6"
+rml_rtmp = { path = "../../rtmp" }
