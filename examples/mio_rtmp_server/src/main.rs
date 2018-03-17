@@ -6,6 +6,7 @@ mod connection;
 mod server;
 
 use std::collections::HashSet;
+use std::time::SystemTime;
 use mio::*;
 use mio::net::{TcpListener};
 use slab::Slab;
@@ -29,9 +30,16 @@ fn main() {
     let mut connections = Slab::new();
     let mut server = Server::new();
     let mut count = 1;
+    let outer_started_at = SystemTime::now();
+    let mut inner_started_at;
+    let mut total_ns = 0_u64;
+    let mut poll_count = 0;
 
     loop {
         poll.poll(&mut events, None).unwrap();
+
+        inner_started_at = SystemTime::now();
+        poll_count += 1;
 
         for event in events.iter() {
             let mut connections_to_close = ClosedTokens::new();
@@ -79,6 +87,19 @@ fn main() {
                 connections.remove(token);
                 server.notify_connection_closed(token);
             }
+        }
+
+        let elapsed = inner_started_at.elapsed().unwrap();
+        total_ns += elapsed.subsec_nanos() as u64;
+
+        if poll_count % 1000 == 0 {
+            let seconds_since_start = outer_started_at.elapsed().unwrap().as_secs();
+            let seconds_doing_work = (total_ns as f64) / (1000 as f64) / (1000 as f64) / (1000 as f64);
+            let percentage_doing_work = (seconds_doing_work / seconds_since_start as f64) * 100 as f64;
+            println!("Spent {}% time doing work over {} seconds (avg {} microseconds) ",
+                     percentage_doing_work as u32,
+                     seconds_since_start,
+                     (total_ns / poll_count) / 1000);
         }
     }
 }

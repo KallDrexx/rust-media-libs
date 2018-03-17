@@ -33,11 +33,16 @@ impl From<io::Error> for ConnectionError {
     }
 }
 
+enum SendablePacket {
+    RawBytes(Vec<u8>),
+    Packet(Packet),
+}
+
 pub struct Connection {
     socket: TcpStream,
     pub token: Option<Token>,
     interest: Ready,
-    send_queue: VecDeque<Vec<u8>>,
+    send_queue: VecDeque<SendablePacket>,
     has_been_registered: bool,
     handshake: Handshake,
     handshake_completed: bool,
@@ -78,10 +83,9 @@ impl Connection {
     }
 
     pub fn enqueue_response(&mut self, poll: &mut Poll, bytes: Vec<u8>) -> io::Result<()> {
-        self.send_queue.push_back(bytes);
+        self.send_queue.push_back(SendablePacket::RawBytes(bytes));
         self.interest.insert(Ready::writable());
-        self.register(poll)?;
-        Ok(())
+        self.register(poll)
     }
 
     pub fn enqueue_packet(&mut self, poll: &mut Poll, packet: Packet) -> io::Result<()> {
@@ -89,7 +93,9 @@ impl Connection {
             println!("Dropped packet at {} (size {})", self.started_at.elapsed().unwrap().as_secs(), self.send_queue.len());
             Ok(())
         } else {
-            self.enqueue_response(poll, packet.bytes)
+            self.send_queue.push_back(SendablePacket::Packet(packet));
+            self.interest.insert(Ready::writable());
+            self.register(poll)
         }
     }
 
@@ -135,10 +141,15 @@ impl Connection {
             }
         };
 
-        match self.socket.write(&message) {
+        let bytes = match message {
+            SendablePacket::RawBytes(bytes) => bytes,
+            SendablePacket::Packet(packet) => packet.bytes,
+        };
+
+        match self.socket.write(&bytes) {
             Ok(_bytes_sent) => {
                 if self.handshake_completed && self.debug_file.is_some() {
-                    match self.debug_deserializer.as_mut().unwrap().get_next_message(&message).unwrap() {
+                    match self.debug_deserializer.as_mut().unwrap().get_next_message(&bytes).unwrap() {
                         Some(payload) => {
                             let inner_message = payload.to_rtmp_message().unwrap();
                             writeln!(self.debug_file.as_mut().unwrap(), "{:?}", payload).unwrap();
@@ -175,7 +186,7 @@ impl Connection {
                 if error.kind() == io::ErrorKind::WouldBlock {
                     // Client buffer is full, push it back to the queue
                     println!("Full write buffer!");
-                    self.send_queue.push_front(message);
+                    self.send_queue.push_front(SendablePacket::RawBytes(bytes));
                 } else {
                     println!("Failed to send buffer for {:?} with error {}", self.token, error);
                     return Err(error);
