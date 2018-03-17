@@ -48,7 +48,8 @@ pub struct Connection {
     handshake_completed: bool,
     debug_file: Option<File>,
     debug_deserializer: Option<ChunkDeserializer>,
-    started_at: SystemTime,
+    dropped_packet_count: u32,
+    last_drop_notification_at: SystemTime,
 }
 
 impl Connection {
@@ -78,7 +79,8 @@ impl Connection {
             handshake_completed: false,
             debug_deserializer: deserializer,
             debug_file,
-            started_at: SystemTime::now(),
+            dropped_packet_count: 0,
+            last_drop_notification_at: SystemTime::now(),
         }
     }
 
@@ -89,8 +91,20 @@ impl Connection {
     }
 
     pub fn enqueue_packet(&mut self, poll: &mut Poll, packet: Packet) -> io::Result<()> {
+        let elapsed = self.last_drop_notification_at.elapsed().unwrap();
+        if elapsed.as_secs() > 10 {
+            if self.dropped_packet_count > 0 {
+                println!("{} packets dropped in the last {} seconds",
+                         self.dropped_packet_count,
+                         elapsed.as_secs());
+            }
+
+            self.last_drop_notification_at = SystemTime::now();
+            self.dropped_packet_count = 0;
+        }
+
         if packet.can_be_dropped && self.send_queue.len() > 10 {
-            println!("Dropped packet at {} (size {})", self.started_at.elapsed().unwrap().as_secs(), self.send_queue.len());
+            self.dropped_packet_count += 1;
             Ok(())
         } else {
             self.send_queue.push_back(SendablePacket::Packet(packet));
