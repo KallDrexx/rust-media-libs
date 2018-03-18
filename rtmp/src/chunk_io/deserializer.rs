@@ -120,7 +120,17 @@ impl ChunkDeserializer {
 
     fn get_initial_timestamp(&mut self) -> Result<ParseStageResult, ChunkDeserializationError> {
         if self.current_header_format == ChunkHeaderFormat::Empty {
-            self.current_header.timestamp = self.current_header.timestamp + self.current_header.timestamp_delta;
+            // Some encoders send an empty header after a type 1 header due to a message split
+            // across multiple chunks.  We need to be careful *NOT* to apply the delta to each
+            // type 3 chunk that's trying to serve a single message, otherwise timestamps will
+            // get out of control.
+            if self.current_payload.data.len() == 0 {
+                // Since we don't have any payload data yet, that means this is the first
+                // chunk of the message.  As it's the first chunk this is the only time we should
+                // apply the previous header's delta to the timestamp
+                self.current_header.timestamp = self.current_header.timestamp + self.current_header.timestamp_delta;
+            }
+
             self.current_stage = ParseStage::MessageLength;
             return Ok(ParseStageResult::Success);
         }
@@ -613,6 +623,30 @@ mod tests {
                 }) => {}, // success
             x => panic!("Unexpected set max chunk size result of {:?}", x),
         }
+    }
+
+    #[test]
+    fn type_2_chunk_that_exceeds_max_chunk_size_does_not_keep_applying_delta_to_timestamp() {
+        // It was noticed that OBS does not totally conform to the RTMP specification.  It will
+        // send a type 1 chunk with a time delta for a video packet, but will send the remaining
+        // parts of that chunk with a type 3 header (even though the delta should not be applied).
+        // this test verifies we can handle that.
+
+        let chunk1 = [0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x09, 0x01, 0x00, 0x00, 0x00, 0x01];
+        let chunk2 = [0x44, 0x00, 0x00, 0x21, 0x00, 0x00, 0x05, 0x09, 0x01, 0x02, 0x03, 0x04, 0xc4, 0x05];
+
+        let mut deserializer = ChunkDeserializer::new();
+        deserializer.set_max_chunk_size(4).unwrap();
+
+        let payload1 = deserializer.get_next_message(&chunk1).unwrap().unwrap();
+        assert_eq!(payload1.type_id, 0x09, "Incorrect payload 1 type");
+        assert_eq!(payload1.timestamp, RtmpTimestamp::new(0), "Incorrect payload 1 timestamp");
+        assert_eq!(&payload1.data[..], &[0x01], "Incorrect payload 1 data");
+
+        let payload2 = deserializer.get_next_message(&chunk2).unwrap().unwrap();
+        assert_eq!(payload2.type_id, 0x09, "Incorrect payload 2 type");
+        assert_eq!(payload2.timestamp, RtmpTimestamp::new(33), "Incorrect payload 2 timestamp");
+        assert_eq!(&payload2.data[..], &[0x01, 0x02, 0x03, 0x04, 0x05], "Incorrect payload 2 data");
     }
 
     fn form_type_0_chunk(csid: u32, timestamp: u32, message_stream_id: u32, type_id: u8, payload: &[u8], max_chunk_length: usize) -> Vec<u8> {

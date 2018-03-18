@@ -8,6 +8,7 @@ pub enum ChunkHeaderFormat {
     Empty // Format 3
 }
 
+#[derive(Debug)]
 pub struct ChunkHeader {
     pub chunk_stream_id: u32,
     pub timestamp: RtmpTimestamp,

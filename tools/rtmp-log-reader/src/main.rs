@@ -29,6 +29,7 @@ fn main() {
     // only read one byte at a time to get a byte index for each message
     let mut buffer = [0; 1];
     let mut current_index = 0;
+    let mut last_message_end_index = 0;
 
     loop {
         current_index += 1;
@@ -51,12 +52,13 @@ fn main() {
                 None => break,
             };
 
-            println!("Message: {}   Timestamp: {}   Type: {}    Stream_Id: {}   index: {}",
+            println!("Message: {}   Timestamp: {}   Type: {}    Stream_Id: {}   index: {} ({:x})",
                      message_number,
                      payload.timestamp.value,
                      payload.type_id,
                      payload.message_stream_id,
-                     current_index);
+                     last_message_end_index,
+                     last_message_end_index);
 
             let message = payload.to_rtmp_message().unwrap();
             match message {
@@ -139,6 +141,7 @@ fn main() {
 
             message_number += 1;
             has_read_one_payload = true;
+            last_message_end_index = current_index;
         }
     }
 }
