@@ -401,7 +401,7 @@ fn can_receive_video_data_on_published_stream() {
         ServerSessionEvent::VideoDataReceived {app_name, stream_key, data, timestamp} => {
             assert_eq!(app_name, test_app_name, "Unexpected app name");
             assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
-            assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexepcted timestamp");
+            assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexpected timestamp");
             assert_eq!(&data[..], &[1_u8, 2_u8, 3_u8], "Unexpected data");
         },
 

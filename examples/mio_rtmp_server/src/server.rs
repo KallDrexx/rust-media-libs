@@ -459,6 +459,8 @@ impl Server {
                 continue;
             }
 
+            println!("Timestamp: {:?}", timestamp);
+
             let send_result = match data_type {
                 ReceivedDataType::Audio => client.session.send_audio_data(active_stream_id, data.to_vec(), timestamp.clone(), true),
                 ReceivedDataType::Video => {

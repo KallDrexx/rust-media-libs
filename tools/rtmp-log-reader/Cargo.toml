@@ -1,0 +1,8 @@
+[package]
+name = "rtmp-log-reader"
+version = "0.1.0"
+authors = ["Matthew Shapiro <me@mshapiro.net>"]
+description = "CLI application for reading raw rtmp binary streams"
+
+[dependencies]
+rml_rtmp = { path = "../../rtmp" }
