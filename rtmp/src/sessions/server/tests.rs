@@ -576,6 +576,27 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
     assert_eq!(responses.len(), 5, "Unexpected number of messages received");
 
     match responses.remove(0) {
+        RtmpMessage::Amf0Command {command_name, transaction_id, command_object, mut additional_arguments} => {
+            assert_eq!(command_name, "onStatus".to_string(), "Unexpected command name");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+
+            match additional_arguments.remove(0) {
+                Amf0Value::Object(ref properties) => {
+                    assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
+                    assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetStream.Play.Reset".to_string())), "Unexpected code value");
+                    assert!(properties.contains_key("description"), "Expected description");
+                },
+
+                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
+            }
+        },
+
+        x => panic!("Expected play reset command, instead received: {:?}", x),
+    }
+
+    match responses.remove(0) {
         RtmpMessage::UserControl {event_type, stream_id: sid, buffer_length, timestamp} => {
             assert_eq!(event_type, UserControlEventType::StreamBegin, "Unexpected user control event type received");
             assert_eq!(sid, Some(stream_id), "Unexpected user control stream id");
@@ -632,27 +653,6 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
         },
 
         x => panic!("Expected onStatus data argument, instead received: {:?}", x),
-    }
-
-    match responses.remove(0) {
-        RtmpMessage::Amf0Command {command_name, transaction_id, command_object, mut additional_arguments} => {
-            assert_eq!(command_name, "onStatus".to_string(), "Unexpected command name");
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
-            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
-
-            match additional_arguments.remove(0) {
-                Amf0Value::Object(ref properties) => {
-                    assert_eq!(properties.get("level"), Some(&Amf0Value::Utf8String("status".to_string())), "Unexpected level value");
-                    assert_eq!(properties.get("code"), Some(&Amf0Value::Utf8String("NetStream.Play.Reset".to_string())), "Unexpected code value");
-                    assert!(properties.contains_key("description"), "Expected description");
-                },
-
-                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
-            }
-        },
-
-        x => panic!("Expected play reset command, instead received: {:?}", x),
     }
 }
 
