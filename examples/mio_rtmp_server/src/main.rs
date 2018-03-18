@@ -6,6 +6,7 @@ mod connection;
 mod server;
 
 use std::collections::HashSet;
+use std::env;
 use std::time::SystemTime;
 use mio::*;
 use mio::net::{TcpListener};
@@ -19,6 +20,9 @@ type ClosedTokens = HashSet<usize>;
 enum EventResult { None, ReadResult(ReadResult), DisconnectConnection }
 
 fn main() {
+    let log_io = env::args().any(|x| x == "--log-io".to_string());
+    println!("Logging I/O: {}", log_io);
+
     let addr = "0.0.0.0:1935".parse().unwrap();
     let listener = TcpListener::bind(&addr).unwrap();
     let mut poll = Poll::new().unwrap();
@@ -32,8 +36,8 @@ fn main() {
     let mut count = 1;
     let mut outer_started_at = SystemTime::now();
     let mut inner_started_at;
-    let mut total_ns = 0_u64;
-    let mut poll_count = 0;
+    let mut total_ns = 0;
+    let mut poll_count = 0_u32;
 
     loop {
         poll.poll(&mut events, None).unwrap();
@@ -47,7 +51,7 @@ fn main() {
             match event.token() {
                 SERVER => {
                     let (socket, _) = listener.accept().unwrap();
-                    let mut connection = Connection::new(socket, count, false);
+                    let mut connection = Connection::new(socket, count, log_io);
                     let token = connections.insert(connection);
 
                     count += 1;
@@ -91,13 +95,13 @@ fn main() {
 
         let inner_elapsed = inner_started_at.elapsed().unwrap();
         let outer_elapsed = outer_started_at.elapsed().unwrap();
-        total_ns += inner_elapsed.subsec_nanos() as u64;
+        total_ns += inner_elapsed.subsec_nanos();
 
         if outer_elapsed.as_secs() >= 10 {
             let seconds_since_start = outer_started_at.elapsed().unwrap().as_secs();
             let seconds_doing_work = (total_ns as f64) / (1000 as f64) / (1000 as f64) / (1000 as f64);
             let percentage_doing_work = (seconds_doing_work / seconds_since_start as f64) * 100 as f64;
-            println!("Spent {} ms ({}% of time) doing work over {} seconds (avg {} microseconds per iteration) ",
+            println!("Spent {} ms ({}% of time) doing work over {} seconds (avg {} microseconds per iteration)",
                      total_ns / 1000 / 1000,
                      percentage_doing_work as u32,
                      seconds_since_start,

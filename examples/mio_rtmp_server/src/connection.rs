@@ -7,8 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mio::{Token, Ready, Poll, PollOpt};
 use mio::net::TcpStream;
 use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
-use rml_rtmp::chunk_io::{ChunkDeserializer, Packet};
-use rml_rtmp::messages::RtmpMessage;
+use rml_rtmp::chunk_io::{Packet};
 
 const BUFFER_SIZE: usize = 4096;
 
@@ -46,24 +45,25 @@ pub struct Connection {
     has_been_registered: bool,
     handshake: Handshake,
     handshake_completed: bool,
-    debug_file: Option<File>,
-    debug_deserializer: Option<ChunkDeserializer>,
+    input_log_file: Option<File>,
+    output_log_file: Option<File>,
     dropped_packet_count: u32,
     last_drop_notification_at: SystemTime,
 }
 
 impl Connection {
     pub fn new(socket: TcpStream, count: usize, log_debug_logic: bool) -> Connection {
-        let (debug_file, deserializer) = match log_debug_logic {
+        let (input_file, output_file) = match log_debug_logic {
             true => {
                 fs::create_dir_all("logs").unwrap();
 
                 let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                 let seconds = duration.as_secs();
-                let name = format!("logs/{}-{}.log", seconds, count);
-                let file = File::create(name).unwrap();
-                let deserializer = ChunkDeserializer::new();
-                (Some(file), Some(deserializer))
+                let input_name = format!("logs/{}-{}.input.log", seconds, count);
+                let output_name = format!("logs/{}-{}.output.log", seconds, count);
+                let input_file = File::create(input_name).unwrap();
+                let output_file = File::create(output_name).unwrap();
+                (Some(input_file), Some(output_file))
             },
 
             false => (None, None),
@@ -77,8 +77,8 @@ impl Connection {
             has_been_registered: false,
             handshake: Handshake::new(PeerType::Server),
             handshake_completed: false,
-            debug_deserializer: deserializer,
-            debug_file,
+            input_log_file: input_file,
+            output_log_file: output_file,
             dropped_packet_count: 0,
             last_drop_notification_at: SystemTime::now(),
         }
@@ -123,7 +123,14 @@ impl Connection {
             Ok(bytes_read_count) => {
                 let read_bytes = match self.handshake_completed {
                     false => self.handle_handshake_bytes(poll, &buffer[..bytes_read_count])?,
-                    true => ReadResult::BytesReceived {buffer, byte_count: bytes_read_count},
+                    true => {
+                        match self.input_log_file {
+                            None => (),
+                            Some(ref mut file) => {file.write(&buffer[..bytes_read_count]).unwrap();},
+                        }
+
+                        ReadResult::BytesReceived {buffer, byte_count: bytes_read_count}
+                    },
                 };
 
                 self.register(poll)?;
@@ -162,36 +169,10 @@ impl Connection {
 
         match self.socket.write(&bytes) {
             Ok(_bytes_sent) => {
-                if self.handshake_completed && self.debug_file.is_some() {
-                    match self.debug_deserializer.as_mut().unwrap().get_next_message(&bytes).unwrap() {
-                        Some(payload) => {
-                            let inner_message = payload.to_rtmp_message().unwrap();
-                            writeln!(self.debug_file.as_mut().unwrap(), "{:?}", payload).unwrap();
-
-                            match inner_message {
-                                RtmpMessage::VideoData {data} => {
-                                    let output = format!("VideoData {{ data: [0x{:x}, 0x{:x}, 0x{:x}, 0x{:x}, 0x{:x}, ..] }}", data[0], data[1], data[2], data[3], data[4]);
-                                    writeln!(self.debug_file.as_mut().unwrap(), "{}", output).unwrap();
-                                },
-
-                                RtmpMessage::AudioData {data} => {
-                                    let output = format!("AudioData {{ data: [0x{:x}, 0x{:x}, ..] }}", data[0], data[1]);
-                                    writeln!(self.debug_file.as_mut().unwrap(), "{}", output).unwrap();
-                                },
-
-                                RtmpMessage::SetChunkSize {size} => {
-                                    writeln!(self.debug_file.as_mut().unwrap(), "{:?}", inner_message).unwrap();
-                                    self.debug_deserializer
-                                        .as_mut()
-                                        .unwrap()
-                                        .set_max_chunk_size(size as usize)
-                                        .unwrap();
-                                },
-
-                                x => writeln!(self.debug_file.as_mut().unwrap(), "{:?}", x).unwrap(),
-                            }
-                        },
+                if self.handshake_completed {
+                    match self.output_log_file {
                         None => (),
+                        Some(ref mut file) => {file.write(&bytes).unwrap();},
                     }
                 }
             },
