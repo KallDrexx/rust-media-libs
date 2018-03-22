@@ -37,6 +37,11 @@ enum SendablePacket {
     Packet(Packet),
 }
 
+struct DebugLogFiles {
+    rtmp_input_file: File,
+    rtmp_output_file: File,
+}
+
 pub struct Connection {
     socket: TcpStream,
     pub token: Option<Token>,
@@ -45,40 +50,42 @@ pub struct Connection {
     has_been_registered: bool,
     handshake: Handshake,
     handshake_completed: bool,
-    input_log_file: Option<File>,
-    output_log_file: Option<File>,
+    debug_log_files: Option<DebugLogFiles>,
     dropped_packet_count: u32,
     last_drop_notification_at: SystemTime,
 }
 
 impl Connection {
     pub fn new(socket: TcpStream, count: usize, log_debug_logic: bool) -> Connection {
-        let (input_file, output_file) = match log_debug_logic {
+        let debug_log_files = match log_debug_logic {
             true => {
                 fs::create_dir_all("logs").unwrap();
 
                 let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                 let seconds = duration.as_secs();
-                let input_name = format!("logs/{}-{}.input.log", seconds, count);
-                let output_name = format!("logs/{}-{}.output.log", seconds, count);
-                let input_file = File::create(input_name).unwrap();
-                let output_file = File::create(output_name).unwrap();
-                (Some(input_file), Some(output_file))
+                let rtmp_input_name = format!("logs/{}-{}.rtmp.input.log", seconds, count);
+                let rtmp_output_name = format!("logs/{}-{}.rtmp.output.log", seconds, count);
+
+                let log_files = DebugLogFiles {
+                    rtmp_input_file: File::create(rtmp_input_name).unwrap(),
+                    rtmp_output_file: File::create(rtmp_output_name).unwrap(),
+                };
+
+                Some(log_files)
             },
 
-            false => (None, None),
+            false => None,
         };
 
         Connection {
             socket,
+            debug_log_files,
             token: None,
             interest: Ready::readable() | Ready::writable(),
             send_queue: VecDeque::new(),
             has_been_registered: false,
             handshake: Handshake::new(PeerType::Server),
             handshake_completed: false,
-            input_log_file: input_file,
-            output_log_file: output_file,
             dropped_packet_count: 0,
             last_drop_notification_at: SystemTime::now(),
         }
@@ -121,20 +128,26 @@ impl Connection {
             },
 
             Ok(bytes_read_count) => {
-                let read_bytes = match self.handshake_completed {
+                let read_result = match self.handshake_completed {
                     false => self.handle_handshake_bytes(poll, &buffer[..bytes_read_count])?,
-                    true => {
-                        match self.input_log_file {
-                            None => (),
-                            Some(ref mut file) => {file.write(&buffer[..bytes_read_count]).unwrap();},
-                        }
-
-                        ReadResult::BytesReceived {buffer, byte_count: bytes_read_count}
-                    },
+                    true => ReadResult::BytesReceived {buffer, byte_count: bytes_read_count},
                 };
 
+                match read_result {
+                    ReadResult::BytesReceived {buffer: read_buffer, byte_count} => {
+                        match self.debug_log_files {
+                            None => (),
+                            Some(ref mut logs) => {
+                                logs.rtmp_input_file.write(&read_buffer[..byte_count]).unwrap();
+                            },
+                        }
+                    },
+
+                    _ => (),
+                }
+
                 self.register(poll)?;
-                Ok(read_bytes)
+                Ok(read_result)
             },
 
             Err(error) => {
@@ -168,11 +181,13 @@ impl Connection {
         };
 
         match self.socket.write(&bytes) {
-            Ok(_bytes_sent) => {
+            Ok(bytes_sent) => {
                 if self.handshake_completed {
-                    match self.output_log_file {
+                    match self.debug_log_files {
                         None => (),
-                        Some(ref mut file) => {file.write(&bytes).unwrap();},
+                        Some(ref mut logs) => {
+                            logs.rtmp_output_file.write(&bytes[..bytes_sent]).unwrap();
+                        },
                     }
                 }
             },
