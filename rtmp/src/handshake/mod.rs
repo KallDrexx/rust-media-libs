@@ -320,14 +320,19 @@ impl Handshake {
 
         peer_key.extend_from_slice(&RANDOM_CRUD[..]);
 
-        let expected_hmac = &received_packet_2[P2_SIG_START_INDEX..RTMP_PACKET_SIZE];
+        // TODO: Re-enable P2 verification.
+        // Verification of packet 2 had to be commented out for flash players to work.  For some
+        // reason flash players are failing the p2 validation even though VLC, ffmpeg, and others
+        // are handshaking just fine.  For now I am just going to assume that the p2 they sent
+        // us is fine if they don't disconnect after we sent them our p2, and can look at this
+        // later if there's a reason to really care.
 
-        let hmac1 = calc_hmac(&self.sent_digest, &peer_key[..]);
-        let hmac2 = calc_hmac(&received_packet_2[..P2_SIG_START_INDEX], &hmac1);
-
-        if &expected_hmac[..] != &hmac2[..] {
-            return Err(HandshakeError{kind: HandshakeErrorKind::InvalidP2Packet});
-        }
+        //let expected_hmac = &received_packet_2[P2_SIG_START_INDEX..RTMP_PACKET_SIZE];
+        //let hmac1 = calc_hmac(&self.sent_digest, &peer_key[..]);
+        //let hmac2 = calc_hmac(&received_packet_2[..P2_SIG_START_INDEX], &hmac1);
+        //if &expected_hmac[..] != &hmac2[..] {
+        //    return Err(HandshakeError{kind: HandshakeErrorKind::InvalidP2Packet});
+        //}
 
         self.current_stage = Stage::Complete;
         let bytes_left = self.input_buffer.drain(..).collect();

@@ -45,6 +45,20 @@ impl MessagePayload {
             9 => types::video_data::deserialize(&self.data[..]),
             18 => types::amf0_data::deserialize(&self.data[..]),
             20 => types::amf0_command::deserialize(&self.data[..]),
+
+            // For some reason Flash players (like wowza's test player) send messages
+            // that are flagged as amf3 encoded, but in reality they are amf0 encoded
+            15 => types::amf0_data::deserialize(&self.data[..]),
+
+            17 => {
+                // Fake amf3 commands usually seem to have a 0 in front of the amf0 data.
+                if self.data.len() > 0 && self.data[0] == 0x00 {
+                    types::amf0_command::deserialize(&self.data[1..])
+                } else {
+                    types::amf0_command::deserialize(&self.data[..])
+                }
+            },
+
             _ => Ok(RtmpMessage::Unknown { type_id: self.type_id, data: self.data.clone() })
         }
     }
@@ -354,6 +368,36 @@ mod tests {
     fn can_get_rtmp_message_for_window_acknowledgement_payload() {
         let message = RtmpMessage::WindowAcknowledgement {size:25};
         let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
+        let result = payload.to_rtmp_message().unwrap();
+
+        assert_eq!(result, message);
+    }
+
+    #[test]
+    fn can_get_rtmp_message_for_amf0_command_flagged_as_amf3()
+    {
+        let message = RtmpMessage::Amf0Command {
+            command_name: "test".to_string(),
+            transaction_id: 15.0,
+            command_object: Amf0Value::Number(23.0),
+            additional_arguments: vec![Amf0Value::Null]
+        };
+
+        let mut payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
+        payload.type_id = 17;
+        payload.data.insert(0, 0x00);
+
+        let result = payload.to_rtmp_message().unwrap();
+
+        assert_eq!(result, message);
+    }
+
+    #[test]
+    fn can_get_rtmp_message_for_amf0_data_payload_flagged_as_amf3() {
+        let message = RtmpMessage::Amf0Data { values: vec![Amf0Value::Number(23.3)]};
+        let mut payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
+        payload.type_id = 15;
+
         let result = payload.to_rtmp_message().unwrap();
 
         assert_eq!(result, message);

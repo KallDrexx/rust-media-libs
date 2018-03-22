@@ -408,12 +408,13 @@ impl ServerSession {
         let new_stream = ActiveStream{
             current_state: StreamState::Created,
         };
+
         self.active_streams.insert(new_stream_id, new_stream);
 
         let packet = self.create_success_response(transaction_id,
             Amf0Value::Null,
             vec![Amf0Value::Number(new_stream_id as f64)],
-            new_stream_id)?;
+            0)?; // Stream create result must always be on stream 0 for flash clients
 
         Ok(vec![ServerSessionResult::OutboundResponse(packet)])
     }

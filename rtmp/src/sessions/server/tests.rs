@@ -16,23 +16,23 @@ fn new_config_creates_initial_responses() {
 
     let (responses, _) = split_results(&mut deserializer, results);
 
-    assert_vec_contains!(responses, &RtmpMessage::WindowAcknowledgement {size: DEFAULT_WINDOW_ACK_SIZE});
-    assert_vec_contains!(responses, &RtmpMessage::SetPeerBandwidth {size: DEFAULT_PEER_BANDWIDTH, limit_type: PeerBandwidthLimitType::Dynamic});
-    assert_vec_contains!(responses, &RtmpMessage::UserControl {
+    assert_vec_contains!(responses, &(_, RtmpMessage::WindowAcknowledgement {size: DEFAULT_WINDOW_ACK_SIZE}));
+    assert_vec_contains!(responses, &(_, RtmpMessage::SetPeerBandwidth {size: DEFAULT_PEER_BANDWIDTH, limit_type: PeerBandwidthLimitType::Dynamic}));
+    assert_vec_contains!(responses, &(_, RtmpMessage::UserControl {
             event_type: UserControlEventType::StreamBegin,
             stream_id: Some(0),
             buffer_length: None,
             timestamp: None
-        });
+        }));
 
     // Based on packet capture, not 100% sure if needed
     let mut additional_values: &Vec<Amf0Value> = &Vec::new();
-    assert_vec_contains!(responses, &RtmpMessage::Amf0Command {
+    assert_vec_contains!(responses, &(_, RtmpMessage::Amf0Command {
             command_name: ref command_name_value,
             transaction_id: transaction_id_value,
             command_object: Amf0Value::Null,
             additional_arguments: ref x,
-        } if command_name_value == "onBWDone" && transaction_id_value == 0_f64 => additional_values = x);
+        }) if command_name_value == "onBWDone" && transaction_id_value == 0_f64 => additional_values = x);
     assert_eq!(&additional_values[..], &[Amf0Value::Number(8192_f64)], "onBWDone additional values were unexpected");
 }
 
@@ -61,12 +61,12 @@ fn can_accept_connection_request() {
 
     let (responses, _) = split_results(&mut deserializer, accept_results);
     match responses[0] {
-        RtmpMessage::Amf0Command {
+        (_, RtmpMessage::Amf0Command {
             ref command_name,
             transaction_id: _,
             command_object: Amf0Value::Object(ref properties),
             ref additional_arguments
-        } if command_name == "_result" => {
+        }) if command_name == "_result" => {
             assert_eq!(properties.get("fmsVer"), Some(&Amf0Value::Utf8String(config.fms_version)), "Unexpected fms version");
             assert_eq!(properties.get("capabilities"), Some(&Amf0Value::Number(31.0)), "Unexpected capabilities value");
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
@@ -133,12 +133,12 @@ fn accepted_connection_responds_with_same_object_encoding_value_as_connection_re
 
     let (responses, _) = split_results(&mut deserializer, accept_results);
     match responses[0] {
-        RtmpMessage::Amf0Command {
+        (_, RtmpMessage::Amf0Command {
             ref command_name,
             transaction_id: _,
             command_object: Amf0Value::Object(ref properties),
             ref additional_arguments
-        } if command_name == "_result" => {
+        }) if command_name == "_result" => {
             assert_eq!(properties.get("fmsVer"), Some(&Amf0Value::Utf8String(config.fms_version)), "Unexpected fms version");
             assert_eq!(properties.get("capabilities"), Some(&Amf0Value::Number(31.0)), "Unexpected capabilities value");
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
@@ -181,14 +181,15 @@ fn can_create_stream_on_connected_session() {
 
     assert_eq!(responses.len(), 1, "Unexpected number of responses returned");
     match responses[0] {
-        RtmpMessage::Amf0Command {
+        (ref payload, RtmpMessage::Amf0Command {
             ref command_name,
             transaction_id,
             command_object: Amf0Value::Null,
             ref additional_arguments
-        } if command_name == "_result" && transaction_id == 4.0 => {
+        }) if command_name == "_result" && transaction_id == 4.0 => {
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments in response");
             assert_vec_match!(additional_arguments, Amf0Value::Number(x) if x > 0.0);
+            assert_eq!(payload.message_stream_id, 0, "Unexpected message stream id");
         },
 
         _ => panic!("First response was not the expected value: {:?}", responses[0]),
@@ -239,12 +240,12 @@ fn can_accept_live_publishing_to_requested_stream_key() {
     assert_eq!(responses.len(), 2, "Unexpected number of responses received");
 
     match responses.remove(0) {
-        RtmpMessage::UserControl {
+        (_, RtmpMessage::UserControl {
             event_type: UserControlEventType::StreamBegin,
             stream_id: Some(received_stream_id),
             buffer_length: None,
             timestamp: None,
-        } => {
+        }) => {
             assert_eq!(received_stream_id, stream_id, "Stream begin did not contain the expected stream id");
         },
 
@@ -252,12 +253,12 @@ fn can_accept_live_publishing_to_requested_stream_key() {
     }
 
     match responses.remove(0) {
-        RtmpMessage::Amf0Command {
+        (_, RtmpMessage::Amf0Command {
             command_name,
             transaction_id,
             command_object: Amf0Value::Null,
             additional_arguments
-        } => {
+        }) => {
             assert_eq!(command_name, "onStatus".to_string(), "Unexpected command name");
             assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
@@ -576,7 +577,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
     assert_eq!(responses.len(), 5, "Unexpected number of messages received");
 
     match responses.remove(0) {
-        RtmpMessage::Amf0Command {command_name, transaction_id, command_object, mut additional_arguments} => {
+        (_, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, mut additional_arguments}) => {
             assert_eq!(command_name, "onStatus".to_string(), "Unexpected command name");
             assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
             assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
@@ -597,7 +598,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
     }
 
     match responses.remove(0) {
-        RtmpMessage::UserControl {event_type, stream_id: sid, buffer_length, timestamp} => {
+        (_, RtmpMessage::UserControl {event_type, stream_id: sid, buffer_length, timestamp}) => {
             assert_eq!(event_type, UserControlEventType::StreamBegin, "Unexpected user control event type received");
             assert_eq!(sid, Some(stream_id), "Unexpected user control stream id");
             assert_eq!(buffer_length, None, "Unexpected user control buffer length");
@@ -608,7 +609,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
     }
 
     match responses.remove(0) {
-        RtmpMessage::Amf0Command {command_name, transaction_id, command_object, mut additional_arguments} => {
+        (_, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, mut additional_arguments}) => {
             assert_eq!(command_name, "onStatus".to_string(), "Unexpected command name");
             assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
             assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
@@ -629,7 +630,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
     }
 
     match responses.remove(0) {
-        RtmpMessage::Amf0Data {values} => {
+        (_, RtmpMessage::Amf0Data {values}) => {
             assert_eq!(values.len(), 3, "Unexpected number of values received");
             assert_eq!(values[0], Amf0Value::Utf8String("|RtmpSampleAccess".to_string()), "Incorrect first data argument");
             assert_eq!(values[1], Amf0Value::Boolean(false), "Incorrect second data argument");
@@ -640,7 +641,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
     }
 
     match responses.remove(0) {
-        RtmpMessage::Amf0Data {mut values} => {
+        (_, RtmpMessage::Amf0Data {mut values}) => {
             assert_eq!(values.len(), 2, "Unexpected number of values received");
             assert_eq!(values[0], Amf0Value::Utf8String("onStatus".to_string()), "Unexpected first data argument");
             match values.remove(1) {
@@ -916,7 +917,7 @@ fn get_basic_config() -> ServerSessionConfig {
     }
 }
 
-fn split_results(deserializer: &mut ChunkDeserializer, mut results: Vec<ServerSessionResult>) -> (Vec<RtmpMessage>, Vec<ServerSessionEvent>) {
+fn split_results(deserializer: &mut ChunkDeserializer, mut results: Vec<ServerSessionResult>) -> (Vec<(MessagePayload, RtmpMessage)>, Vec<ServerSessionEvent>) {
     let mut responses = Vec::new();
     let mut events = Vec::new();
 
@@ -931,7 +932,7 @@ fn split_results(deserializer: &mut ChunkDeserializer, mut results: Vec<ServerSe
                 }
 
                 println!("response received from server: {:?}", message);
-                responses.push(message);
+                responses.push((payload, message));
             },
 
             ServerSessionResult::RaisedEvent(event) => {
@@ -1002,12 +1003,12 @@ fn create_active_stream(session: &mut ServerSession, serializer: &mut ChunkSeria
 
     assert_eq!(responses.len(), 1, "Unexpected number of responses returned");
     match responses[0] {
-        RtmpMessage::Amf0Command {
+        (_, RtmpMessage::Amf0Command {
             ref command_name,
             transaction_id,
             command_object: Amf0Value::Null,
             ref additional_arguments
-        } if command_name == "_result" && transaction_id == 4.0 => {
+        }) if command_name == "_result" && transaction_id == 4.0 => {
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments in response");
             match additional_arguments[0] {
                 Amf0Value::Number(x) => return x as u32,
