@@ -48,6 +48,7 @@ pub enum Amf0Value {
     Utf8String(String),
     Object(HashMap<String, Amf0Value>),
     Null,
+    Undefined,
 }
 
 impl Amf0Value {
@@ -86,6 +87,7 @@ mod markers {
     pub const STRING_MARKER: u8 = 2;
     pub const OBJECT_MARKER: u8 = 3;
     pub const NULL_MARKER: u8 = 5;
+    pub const UNDEFINED_MARKER: u8 = 6;
     pub const ECMA_ARRAY_MARKER: u8 = 8;
     pub const OBJECT_END_MARKER: u8 = 9;
     pub const UTF_8_EMPTY_MARKER: u16 = 0;

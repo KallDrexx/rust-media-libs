@@ -22,6 +22,7 @@ fn serialize_value(value: &Amf0Value, bytes: &mut Vec<u8>) -> Result<(), Amf0Ser
     match *value {
         Amf0Value::Boolean(ref val) => Ok(serialize_bool(&val, bytes)),
         Amf0Value::Null => Ok(serialize_null(bytes)),
+        Amf0Value::Undefined => Ok(serialize_undefined(bytes)),
         Amf0Value::Number(ref val) => serialize_number(&val, bytes),
         Amf0Value::Utf8String(ref val) => serialize_string(&val, bytes),
         Amf0Value::Object(ref val) => serialize_object(&val, bytes)
@@ -54,6 +55,10 @@ fn serialize_null(bytes: &mut Vec<u8>) {
     bytes.push(markers::NULL_MARKER);
 }
 
+fn serialize_undefined(bytes: &mut Vec<u8>) {
+    bytes.push(markers::UNDEFINED_MARKER);
+}
+
 fn serialize_object(properties: &HashMap<String, Amf0Value>, bytes: &mut Vec<u8>) -> Result<(), Amf0SerializationError> {
     bytes.push(markers::OBJECT_MARKER);
 
@@ -77,7 +82,6 @@ mod tests {
     use super::super::errors::Amf0SerializationError;
     use markers;
     use byteorder::{BigEndian, WriteBytesExt};
-
 
     #[test]
     fn can_serialize_number() {
@@ -180,5 +184,16 @@ mod tests {
             Err(Amf0SerializationError::NormalStringTooLong) => true,
             _ => false}
         );
+    }
+
+    #[test]
+    fn can_serialize_undefined() {
+        let input = vec![Amf0Value::Undefined];
+        let result = serialize(&input).unwrap();
+
+        let mut expected = vec![];
+        expected.write_u8(markers::UNDEFINED_MARKER).unwrap();
+
+        assert_eq!(result, expected);
     }
 }

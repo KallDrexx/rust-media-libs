@@ -20,7 +20,9 @@ pub fn deserialize(bytes: &mut Read) -> Result<Vec<Amf0Value>, Amf0Deserializati
 
     loop {
         match read_next_value(bytes)? {
-            Some(x) => results.push(x),
+            Some(x) => {
+                results.push(x)
+            },
             None => break
         };
     }
@@ -43,6 +45,7 @@ fn read_next_value(bytes: &mut Read) -> Result<Option<Amf0Value>, Amf0Deserializ
     match buffer[0] {
         markers::BOOLEAN_MARKER => parse_bool(bytes).map(Some),
         markers::NULL_MARKER => parse_null().map(Some),
+        markers::UNDEFINED_MARKER => parse_undefined().map(Some),
         markers::NUMBER_MARKER => parse_number(bytes).map(Some),
         markers::OBJECT_MARKER => parse_object(bytes).map(Some),
         markers::ECMA_ARRAY_MARKER => parse_ecma_array(bytes).map(Some),
@@ -62,15 +65,19 @@ fn parse_null() -> Result<Amf0Value, Amf0DeserializationError> {
     Ok(Amf0Value::Null)
 }
 
+fn parse_undefined() -> Result<Amf0Value, Amf0DeserializationError> {
+    Ok(Amf0Value::Undefined)
+}
+
 fn parse_bool(bytes: &mut Read) -> Result<Amf0Value, Amf0DeserializationError> {
     let value = bytes.read_u8()?;
 
     if value == 1 {
         Ok(Amf0Value::Boolean(true))
     }
-    else {
-        Ok(Amf0Value::Boolean(false))
-    }
+        else {
+            Ok(Amf0Value::Boolean(false))
+        }
 }
 
 fn parse_string(bytes: &mut Read) -> Result<Amf0Value, Amf0DeserializationError> {
@@ -128,6 +135,7 @@ fn parse_object_property(bytes: &mut Read) -> Result<Option<ObjectProperty>, Amf
     bytes.read(&mut label_buffer)?;
 
     let label = String::from_utf8(label_buffer)?;
+
     match read_next_value(bytes)? {
         None => Err(Amf0DeserializationError::UnexpectedEof),
         Some(property_value) => {
@@ -265,6 +273,18 @@ mod tests {
         properties.insert("test2".to_string(), Amf0Value::Utf8String("second".to_string()));
 
         let expected = vec![Amf0Value::Object(properties)];
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn can_deserialize_undefined() {
+        let mut vector = vec![];
+        vector.write_u8(markers::UNDEFINED_MARKER).unwrap();
+
+        let mut input = Cursor::new(vector);
+        let result = deserialize(&mut input).unwrap();
+
+        let expected = vec![Amf0Value::Undefined];
         assert_eq!(result, expected);
     }
 }
