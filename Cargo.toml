@@ -2,6 +2,7 @@
 members = [
 	"amf0",
 	"rtmp",
+	"benchmarks/video-relay",
 	"tools/handshake-tester",
 	"tools/rtmp-log-reader",
 	"examples/mio_rtmp_server",

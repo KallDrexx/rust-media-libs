@@ -1,0 +1,10 @@
+[package]
+name = "video-relay"
+version = "0.1.0"
+authors = ["Matthew Shapiro <me@mshapiro.net>"]
+description = "Benchmark to test the speed of one publisher relaying video to two players"
+
+[dependencies]
+rml_rtmp = { path = "../../rtmp" }
+rml_amf0 = { path = "../../amf0" }
+rand = "0.3"
