@@ -35,7 +35,7 @@ fn main() {
 
     let start = SystemTime::now();
 
-    for _ in 0..ITERATION_COUNT {
+    for _ in 0..iteration_count {
         let results = publisher.handle_input(&video_packet.bytes[..]).unwrap();
 
         for result in results {
