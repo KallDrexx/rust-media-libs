@@ -278,6 +278,13 @@ impl ChunkDeserializer {
         self.current_payload.type_id = self.current_header.message_type_id;
         self.current_payload.message_stream_id = self.current_header.message_stream_id;
 
+        // Make sure the payload vector has enough capacity for the whole message data.  This
+        // helps with performance when there are smaller chunk sizes.
+        let capacity_needed = self.current_header.message_length as usize - self.current_payload.data.capacity();
+        if capacity_needed > 0 {
+            self.current_payload.data.reserve(capacity_needed);
+        }
+
         for byte in self.buffer.drain(0..(length as usize)) {
             self.current_payload.data.push(byte);
         }
