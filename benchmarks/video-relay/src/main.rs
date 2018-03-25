@@ -10,7 +10,7 @@ use rml_rtmp::messages::{MessagePayload, RtmpMessage};
 use rml_rtmp::sessions::{ServerSession, ServerSessionConfig, ServerSessionEvent, ServerSessionResult};
 use rml_rtmp::time::RtmpTimestamp;
 
-const ITERATION_COUNT: u32 = 500_000;
+const ITERATION_COUNT: u32 = 50_000;
 static APP_NAME: &'static str = "live";
 static STREAM_KEY: &'static str = "stream_key";
 

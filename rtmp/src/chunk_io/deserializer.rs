@@ -1,5 +1,5 @@
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor};
 use std::mem;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
@@ -21,7 +21,7 @@ pub struct ChunkDeserializer {
     current_header: ChunkHeader,
     current_stage: ParseStage,
     current_payload: MessagePayload,
-    buffer: Vec<u8>,
+    buffer: VecDeque<u8>,
     previous_headers: HashMap<u32, ChunkHeader>,
 }
 
@@ -53,14 +53,17 @@ impl ChunkDeserializer {
             current_header_format: ChunkHeaderFormat::Full,
             current_header: ChunkHeader::new(),
             current_stage: ParseStage::Csid,
-            buffer: Vec::new(),
+            buffer: VecDeque::new(),
             previous_headers: HashMap::new(),
             current_payload: MessagePayload::new(),
         }
     }
 
     pub fn get_next_message(&mut self, bytes: &[u8]) -> Result<Option<MessagePayload>, ChunkDeserializationError> {
-        self.buffer.extend_from_slice(bytes);
+        self.buffer.reserve(bytes.len());
+        for x in 0..bytes.len() {
+            self.buffer.push_back(bytes[x]);
+        }
 
         loop {
             let mut complete_message = None;
@@ -141,7 +144,8 @@ impl ChunkDeserializer {
 
         let timestamp;
         {
-            let mut cursor = Cursor::new(&mut self.buffer);
+            let bytes: Vec<u8> = self.buffer.drain(0..3).collect();
+            let mut cursor = Cursor::new(bytes);
             timestamp = cursor.read_u24::<BigEndian>()?;
         }
 
@@ -153,7 +157,6 @@ impl ChunkDeserializer {
             self.current_header.timestamp_delta = timestamp;
         }
 
-        self.buffer.drain(0..3);
         self.current_stage = ParseStage::MessageLength;
         Ok(ParseStageResult::Success)
     }
@@ -170,11 +173,11 @@ impl ChunkDeserializer {
 
         let length;
         {
-            let mut cursor = Cursor::new(&mut self.buffer);
+            let bytes: Vec<u8> = self.buffer.drain(0..3).collect();
+            let mut cursor = Cursor::new(bytes);
             length = cursor.read_u24::<BigEndian>()?;
         }
 
-        self.buffer.drain(0..3);
         self.current_header.message_length = length;
         self.current_stage = ParseStage::MessageTypeId;
         Ok(ParseStageResult::Success)
@@ -208,11 +211,11 @@ impl ChunkDeserializer {
 
         let stream_id;
         {
-            let mut cursor = Cursor::new(&mut self.buffer);
+            let bytes: Vec<u8> = self.buffer.drain(0..4).collect();
+            let mut cursor = Cursor::new(bytes);
             stream_id = cursor.read_u32::<LittleEndian>()?;
         }
 
-        self.buffer.drain(0..4);
         self.current_header.message_stream_id = stream_id;
         self.current_stage = ParseStage::ExtendedTimestamp;
         Ok(ParseStageResult::Success)
@@ -244,7 +247,8 @@ impl ChunkDeserializer {
 
         let timestamp;
         {
-            let mut cursor = Cursor::new(&mut self.buffer);
+            let bytes: Vec<u8> = self.buffer.drain(0..4).collect();
+            let mut cursor = Cursor::new(bytes);
             timestamp = cursor.read_u32::<BigEndian>()?;
         }
 
@@ -257,7 +261,6 @@ impl ChunkDeserializer {
             self.current_header.timestamp = self.current_header.timestamp + (self.current_header.timestamp_delta - MAX_INITIAL_TIMESTAMP);
         }
 
-        self.buffer.drain(0..4);
         self.current_stage = ParseStage::MessagePayload;
         Ok(ParseStageResult::Success)
     }
@@ -319,7 +322,7 @@ fn get_format(byte: &u8) -> ChunkHeaderFormat {
     }
 }
 
-fn get_csid(buffer: &Vec<u8>) -> ParsedValue<u32> {
+fn get_csid(buffer: &VecDeque<u8>) -> ParsedValue<u32> {
     const CSID_MASK: u8 = 0b00111111;
 
     if buffer.len() < 1 {
