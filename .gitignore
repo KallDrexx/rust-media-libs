@@ -1,4 +1,5 @@
 examples/mio_rtmp_server/logs/
+perf.data*
 
 # Remove intellij files
 .idea/
