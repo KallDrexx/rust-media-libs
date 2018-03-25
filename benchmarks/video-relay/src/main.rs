@@ -17,12 +17,22 @@ static APP_NAME: &'static str = "live";
 static STREAM_KEY: &'static str = "stream_key";
 
 fn main() {
+    let args: Vec<_> = std::env::args().collect();
+    let iteration_count = if args.len() >= 2 {
+        args[1].parse::<u32>().unwrap()
+    } else {
+        ITERATION_COUNT
+    };
+
     let (mut publisher, mut publisher_serializer) = create_publishing_session();
     let mut player1 = create_player_session();
     let mut player2 = create_player_session();
 
+    println!("Running {} iterations", iteration_count);
+
     let bytes = [1; 10_000];
     let start = SystemTime::now();
+
 
     for _ in 0..ITERATION_COUNT {
 
