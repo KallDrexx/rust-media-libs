@@ -57,7 +57,13 @@ fn main() {
     }
 
     let elapsed = start.elapsed().unwrap();
-    println!("Took {}.{:09} seconds", elapsed.as_secs(), elapsed.subsec_nanos());
+    let total_ns = elapsed.as_secs() * 1_000_000_000 + elapsed.subsec_nanos() as u64;
+    let average_ns = total_ns / iteration_count as u64;
+
+    println!("Took {}.{:09} seconds (avg {}ns)",
+             elapsed.as_secs(),
+             elapsed.subsec_nanos(),
+             average_ns);
 }
 
 fn create_publishing_session() -> (ServerSession, ChunkSerializer) {
