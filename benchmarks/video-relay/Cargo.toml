@@ -7,4 +7,4 @@ description = "Benchmark to test the speed of one publisher relaying video to tw
 [dependencies]
 rml_rtmp = { path = "../../rtmp" }
 rml_amf0 = { path = "../../amf0" }
-rand = "0.3"
+rand = "0.4"

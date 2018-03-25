@@ -1,8 +1,10 @@
-extern crate rml_rtmp;
+extern crate rand;
 extern crate rml_amf0;
+extern crate rml_rtmp;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
+use rand::Rng;
 
 use rml_amf0::Amf0Value;
 use rml_rtmp::chunk_io::{ChunkSerializer};
@@ -19,13 +21,15 @@ fn main() {
     let mut player1 = create_player_session();
     let mut player2 = create_player_session();
 
-    let video_packet = RtmpMessage::VideoData {data: vec![1; 10_000]};
-    let payload = video_packet.into_message_payload(RtmpTimestamp::new(0), 1).unwrap();
-    let packet = publisher_serializer.serialize(&payload, true, true).unwrap();
-
+    let bytes = [1; 10_000];
     let start = SystemTime::now();
+
     for _ in 0..ITERATION_COUNT {
 
+        let length = rand::thread_rng().gen_range(4_000, 10_000);
+        let video_message = RtmpMessage::VideoData {data: (&bytes[..length]).to_vec()};
+        let payload = video_message.into_message_payload(RtmpTimestamp::new(0), 1).unwrap();
+        let packet = publisher_serializer.serialize(&payload, true, true).unwrap();
         let results = publisher.handle_input(&packet.bytes[..]).unwrap();
 
         for result in results {
