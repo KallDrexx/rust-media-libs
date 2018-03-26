@@ -1,8 +1,9 @@
 use std::cmp::min;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
 use std::io::{Cursor};
 use std::mem;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+use bytes::{BytesMut};
 use ::chunk_io::{ChunkDeserializationError, ChunkDeserializationErrorKind};
 use ::messages::MessagePayload;
 use super::chunk_header::{ChunkHeader, ChunkHeaderFormat};
@@ -21,7 +22,7 @@ pub struct ChunkDeserializer {
     current_header: ChunkHeader,
     current_stage: ParseStage,
     current_payload: MessagePayload,
-    buffer: VecDeque<u8>,
+    buffer: BytesMut,
     previous_headers: HashMap<u32, ChunkHeader>,
 }
 
@@ -53,17 +54,14 @@ impl ChunkDeserializer {
             current_header_format: ChunkHeaderFormat::Full,
             current_header: ChunkHeader::new(),
             current_stage: ParseStage::Csid,
-            buffer: VecDeque::new(),
+            buffer: BytesMut::with_capacity(4096),
             previous_headers: HashMap::new(),
             current_payload: MessagePayload::new(),
         }
     }
 
     pub fn get_next_message(&mut self, bytes: &[u8]) -> Result<Option<MessagePayload>, ChunkDeserializationError> {
-        self.buffer.reserve(bytes.len());
-        for x in 0..bytes.len() {
-            self.buffer.push_back(bytes[x]);
-        }
+        self.buffer.extend_from_slice(bytes);
 
         loop {
             let mut complete_message = None;
@@ -98,7 +96,7 @@ impl ChunkDeserializer {
         }
 
         self.current_header_format = get_format(&self.buffer[0]);
-        let (csid, next_index) = match get_csid(&self.buffer) {
+        let (csid, next_index) = match get_csid(&self.buffer[..]) {
             ParsedValue::NotEnoughBytes => return Ok(ParseStageResult::NotEnoughBytes),
             ParsedValue::Value{val, next_index} => (val, next_index)
         };
@@ -116,7 +114,7 @@ impl ChunkDeserializer {
             }
         };
 
-        self.buffer.drain(0..(next_index as usize));
+        self.buffer.split_to(next_index as usize);
         self.current_stage = ParseStage::InitialTimestamp;
         Ok(ParseStageResult::Success)
     }
@@ -144,7 +142,7 @@ impl ChunkDeserializer {
 
         let timestamp;
         {
-            let bytes: Vec<u8> = self.buffer.drain(0..3).collect();
+            let bytes = self.buffer.split_to(3);
             let mut cursor = Cursor::new(bytes);
             timestamp = cursor.read_u24::<BigEndian>()?;
         }
@@ -173,7 +171,7 @@ impl ChunkDeserializer {
 
         let length;
         {
-            let bytes: Vec<u8> = self.buffer.drain(0..3).collect();
+            let bytes = self.buffer.split_to(3);
             let mut cursor = Cursor::new(bytes);
             length = cursor.read_u24::<BigEndian>()?;
         }
@@ -194,7 +192,7 @@ impl ChunkDeserializer {
         }
 
         self.current_header.message_type_id = self.buffer[0];
-        self.buffer.drain(0..1);
+        self.buffer.split_to(1);
         self.current_stage = ParseStage::MessageStreamId;
         Ok(ParseStageResult::Success)
     }
@@ -211,7 +209,7 @@ impl ChunkDeserializer {
 
         let stream_id;
         {
-            let bytes: Vec<u8> = self.buffer.drain(0..4).collect();
+            let bytes = self.buffer.split_to(4);
             let mut cursor = Cursor::new(bytes);
             stream_id = cursor.read_u32::<LittleEndian>()?;
         }
@@ -247,7 +245,7 @@ impl ChunkDeserializer {
 
         let timestamp;
         {
-            let bytes: Vec<u8> = self.buffer.drain(0..4).collect();
+            let bytes = self.buffer.split_to(4);
             let mut cursor = Cursor::new(bytes);
             timestamp = cursor.read_u32::<BigEndian>()?;
         }
@@ -288,9 +286,8 @@ impl ChunkDeserializer {
             self.current_payload.data.reserve(capacity_needed);
         }
 
-        for byte in self.buffer.drain(0..(length as usize)) {
-            self.current_payload.data.push(byte);
-        }
+        let bytes = self.buffer.split_to(length as usize);
+        self.current_payload.data.extend_from_slice(&bytes[..]);
 
         // Check if this completes the message
         if self.current_payload.data.len() == self.current_header.message_length as usize {
@@ -322,7 +319,7 @@ fn get_format(byte: &u8) -> ChunkHeaderFormat {
     }
 }
 
-fn get_csid(buffer: &VecDeque<u8>) -> ParsedValue<u32> {
+fn get_csid(buffer: &[u8]) -> ParsedValue<u32> {
     const CSID_MASK: u8 = 0b00111111;
 
     if buffer.len() < 1 {

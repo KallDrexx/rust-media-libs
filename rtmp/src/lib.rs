@@ -1,5 +1,6 @@
 #[macro_use] extern crate failure;
 extern crate byteorder;
+extern crate bytes;
 extern crate rand;
 extern crate ring;
 extern crate rml_amf0;

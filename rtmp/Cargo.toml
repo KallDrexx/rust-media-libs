@@ -9,6 +9,7 @@ license = "MIT"
 [dependencies]
 rml_amf0 = { path = "../amf0"}
 byteorder = "1.2.1"
+bytes = "0.4"
 rand = "0.3"
 failure = "0.1.1"
 ring = "0.12.1"
