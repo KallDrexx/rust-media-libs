@@ -241,6 +241,7 @@ fn get_header_format(current_header: &mut ChunkHeader, previous_header: &ChunkHe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
     use ::time::RtmpTimestamp;
     use std::io::{Cursor, Read};
     use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
@@ -251,7 +252,7 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -276,7 +277,7 @@ mod tests {
             timestamp: RtmpTimestamp::new(16777216),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -302,14 +303,14 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let message2 = MessagePayload {
             timestamp: RtmpTimestamp::new(82),
             type_id: 51,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -334,14 +335,14 @@ mod tests {
             timestamp: RtmpTimestamp::new(10),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let message2 = MessagePayload {
             timestamp: RtmpTimestamp::new(16777226),
             type_id: 51,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -367,14 +368,14 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let message2 = MessagePayload {
             timestamp: RtmpTimestamp::new(82),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![5_u8, 6_u8, 7_u8, 8_u8]
+            data: Bytes::from(vec![5_u8, 6_u8, 7_u8, 8_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -397,14 +398,14 @@ mod tests {
             timestamp: RtmpTimestamp::new(10),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let message2 = MessagePayload {
             timestamp: RtmpTimestamp::new(16777226),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![5_u8, 6_u8, 7_u8, 8_u8]
+            data: Bytes::from(vec![5_u8, 6_u8, 7_u8, 8_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -428,21 +429,21 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let message2 = MessagePayload {
             timestamp: RtmpTimestamp::new(82),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![5_u8, 6_u8, 7_u8, 8_u8]
+            data: Bytes::from(vec![5_u8, 6_u8, 7_u8, 8_u8]),
         };
 
         let message3 = MessagePayload {
             timestamp: RtmpTimestamp::new(92),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![9_u8, 10_u8, 11_u8, 12_u8]
+            data: Bytes::from(vec![9_u8, 10_u8, 11_u8, 12_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -465,14 +466,14 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let message2 = MessagePayload {
             timestamp: RtmpTimestamp::new(82),
             type_id: 1,
             message_stream_id: 12,
-            data: vec![6_u8, 7_u8, 8_u8, 9_u8]
+            data: Bytes::from(vec![6_u8, 7_u8, 8_u8, 9_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -498,14 +499,14 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let message2 = MessagePayload {
             timestamp: RtmpTimestamp::new(82),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![5_u8, 6_u8, 7_u8, 8_u8]
+            data: Bytes::from(vec![5_u8, 6_u8, 7_u8, 8_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -535,7 +536,7 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
-            data: payload,
+            data: Bytes::from(payload),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -581,14 +582,14 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let message2 = MessagePayload {
             timestamp: RtmpTimestamp::new(82),
             type_id: 50,
             message_stream_id: 12,
-            data: vec![1_u8, 2_u8, 3_u8, 4_u8]
+            data: Bytes::from(vec![1_u8, 2_u8, 3_u8, 4_u8]),
         };
 
         let mut serializer = ChunkSerializer::new();

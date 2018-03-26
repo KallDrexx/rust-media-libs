@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use rml_amf0::Amf0Value;
 use ::time::RtmpTimestamp;
 use ::sessions::StreamMetadata;
@@ -63,7 +64,7 @@ pub enum ServerSessionEvent {
     AudioDataReceived {
         app_name: String,
         stream_key: String,
-        data: Vec<u8>,
+        data: Bytes,
         timestamp: RtmpTimestamp,
     },
 
@@ -71,7 +72,7 @@ pub enum ServerSessionEvent {
     VideoDataReceived {
         app_name: String,
         stream_key: String,
-        data: Vec<u8>,
+        data: Bytes,
         timestamp: RtmpTimestamp,
     },
 

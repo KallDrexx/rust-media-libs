@@ -13,6 +13,7 @@ mod tests;
 use std::collections::HashMap;
 use std::time::SystemTime;
 use std::rc::Rc;
+use bytes::Bytes;
 use rml_amf0::Amf0Value;
 use ::chunk_io::{ChunkSerializer, ChunkDeserializer, Packet};
 use ::messages::{RtmpMessage, UserControlEventType, PeerBandwidthLimitType};
@@ -252,7 +253,7 @@ impl ServerSession {
     }
 
     /// Prepare video data to be sent to the client
-    pub fn send_video_data(&mut self, stream_id: u32, data: Vec<u8>, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<Packet, ServerSessionError> {
+    pub fn send_video_data(&mut self, stream_id: u32, data: Bytes, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<Packet, ServerSessionError> {
         let message = RtmpMessage::VideoData {data};
         let payload = message.into_message_payload(timestamp, stream_id)?;
         let packet = self.serializer.serialize(&payload, false, can_be_dropped)?;
@@ -260,7 +261,7 @@ impl ServerSession {
     }
 
     /// Prepare audio data to be sent to the client
-    pub fn send_audio_data(&mut self, stream_id: u32, data: Vec<u8>, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<Packet, ServerSessionError> {
+    pub fn send_audio_data(&mut self, stream_id: u32, data: Bytes, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<Packet, ServerSessionError> {
         let message = RtmpMessage::AudioData {data};
         let payload = message.into_message_payload(timestamp, stream_id)?;
         let packet = self.serializer.serialize(&payload, false, can_be_dropped)?;
@@ -695,7 +696,7 @@ impl ServerSession {
         Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
-    fn handle_audio_data(&self, data: Vec<u8>, stream_id: u32, timestamp: RtmpTimestamp) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+    fn handle_audio_data(&self, data: Bytes, stream_id: u32, timestamp: RtmpTimestamp) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         if self.current_state != SessionState::Connected {
             // Audio data sent before connected, just ignore it.
             return Ok(Vec::new());
@@ -741,7 +742,7 @@ impl ServerSession {
         Ok(Vec::new())
     }
 
-    fn handle_video_data(&self, data: Vec<u8>, stream_id: u32, timestamp: RtmpTimestamp) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+    fn handle_video_data(&self, data: Bytes, stream_id: u32, timestamp: RtmpTimestamp) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         if self.current_state != SessionState::Connected {
             // Video data sent before connected, just ignore it.
             return Ok(Vec::new());

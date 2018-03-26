@@ -1,17 +1,19 @@
 use std::io::Cursor;
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use bytes::Bytes;
 
 use ::messages::{MessageDeserializationError, MessageSerializationError};
 use ::messages::{RtmpMessage};
 
-pub fn serialize(sequence_number: u32) -> Result<Vec<u8>, MessageSerializationError> {
+pub fn serialize(sequence_number: u32) -> Result<Bytes, MessageSerializationError> {
     let mut cursor = Cursor::new(Vec::new());
     cursor.write_u32::<BigEndian>(sequence_number)?;
 
-    Ok(cursor.into_inner())
+    let bytes = Bytes::from(cursor.into_inner());
+    Ok(bytes)
 }
 
-pub fn deserialize(data: &[u8]) -> Result<RtmpMessage, MessageDeserializationError> {
+pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationError> {
     let mut cursor = Cursor::new(data);
 
     Ok(RtmpMessage::Acknowledgement {
@@ -24,6 +26,7 @@ mod tests {
     use super::{serialize, deserialize};
     use std::io::Cursor;
     use byteorder::{BigEndian, WriteBytesExt};
+    use bytes::Bytes;
 
     use ::messages::{RtmpMessage};
 
@@ -35,7 +38,7 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u32::<BigEndian>(number).unwrap();
 
-        assert_eq!(cursor.into_inner(), result);
+        assert_eq!(&cursor.into_inner()[..], &result[..]);
     }
 
     #[test]
@@ -44,7 +47,8 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u32::<BigEndian>(number).unwrap();
 
-        let result = deserialize(&cursor.into_inner()[..]).unwrap();
+        let bytes = Bytes::from(cursor.into_inner());
+        let result = deserialize(bytes).unwrap();
 
         let expected = RtmpMessage::Acknowledgement { sequence_number: number };
         assert_eq!(expected, result);

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use bytes::Bytes;
 use slab::Slab;
 use rml_rtmp::sessions::{ServerSession, ServerSessionConfig, ServerSessionResult, ServerSessionEvent};
 use rml_rtmp::sessions::StreamMetadata;
@@ -38,8 +39,8 @@ struct MediaChannel {
     publishing_client_id: Option<usize>,
     watching_client_ids: HashSet<usize>,
     metadata: Option<Rc<StreamMetadata>>,
-    video_sequence_header: Option<Vec<u8>>,
-    audio_sequence_header: Option<Vec<u8>>,
+    video_sequence_header: Option<Bytes>,
+    audio_sequence_header: Option<Bytes>,
 }
 
 #[derive(Debug)]
@@ -413,7 +414,7 @@ impl Server {
     fn handle_audio_video_data_received(&mut self,
                                         stream_key: String,
                                         timestamp: RtmpTimestamp,
-                                        data: Vec<u8>,
+                                        data: Bytes,
                                         data_type: ReceivedDataType,
                                         server_results: &mut Vec<ServerResult>) {
         let channel = match self.channels.get_mut(&stream_key) {
@@ -425,13 +426,13 @@ impl Server {
         // distributed to any late coming watchers
         match data_type {
             ReceivedDataType::Video => {
-                if is_video_sequence_header(&data) {
+                if is_video_sequence_header(data.clone()) {
                     channel.video_sequence_header = Some(data.clone());
                 }
             },
 
             ReceivedDataType::Audio => {
-                if is_audio_sequence_header(&data) {
+                if is_audio_sequence_header(data.clone()) {
                     channel.audio_sequence_header = Some(data.clone());
                 }
             }
@@ -449,10 +450,16 @@ impl Server {
             };
 
             let should_send_to_client = match data_type {
-                ReceivedDataType::Video =>
-                    client.has_received_video_keyframe || (is_video_sequence_header(&data) || is_video_keyframe(&data)),
+                ReceivedDataType::Video => {
+                    client.has_received_video_keyframe ||
+                        (is_video_sequence_header(data.clone()) ||
+                            is_video_keyframe(data.clone()))
+                },
 
-                ReceivedDataType::Audio => client.has_received_video_keyframe || is_audio_sequence_header(&data),
+                ReceivedDataType::Audio => {
+                    client.has_received_video_keyframe ||
+                        is_audio_sequence_header(data.clone())
+                },
             };
 
             if !should_send_to_client {
@@ -460,13 +467,13 @@ impl Server {
             }
 
             let send_result = match data_type {
-                ReceivedDataType::Audio => client.session.send_audio_data(active_stream_id, data.to_vec(), timestamp.clone(), true),
+                ReceivedDataType::Audio => client.session.send_audio_data(active_stream_id, data.clone(), timestamp.clone(), true),
                 ReceivedDataType::Video => {
-                    if is_video_keyframe(&data) {
+                    if is_video_keyframe(data.clone()) {
                         client.has_received_video_keyframe = true;
                     }
 
-                    client.session.send_video_data(active_stream_id, data.to_vec(), timestamp.clone(), true)
+                    client.session.send_video_data(active_stream_id, data.clone(), timestamp.clone(), true)
                 },
             };
 
@@ -508,21 +515,21 @@ impl Server {
     }
 }
 
-fn is_video_sequence_header(data: &Vec<u8>) -> bool {
+fn is_video_sequence_header(data: Bytes) -> bool {
     // This is assuming h264.
     return data.len() >= 2 &&
         data[0] == 0x17 &&
         data[1] == 0x00;
 }
 
-fn is_audio_sequence_header(data: &Vec<u8>) -> bool {
+fn is_audio_sequence_header(data: Bytes) -> bool {
     // This is assuming aac
     return data.len() >= 2 &&
         data[0] == 0xaf &&
         data[1] == 0x00;
 }
 
-fn is_video_keyframe(data: &Vec<u8>) -> bool {
+fn is_video_keyframe(data: Bytes) -> bool {
     // assumings h264
     return data.len() >= 2 &&
         data[0] == 0x17 &&

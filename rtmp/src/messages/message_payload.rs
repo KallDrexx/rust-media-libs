@@ -1,4 +1,5 @@
 use std::fmt;
+use bytes::Bytes;
 use ::time::RtmpTimestamp;
 use ::messages::{MessageDeserializationError, MessageSerializationError};
 use ::messages::RtmpMessage;
@@ -10,7 +11,7 @@ pub struct MessagePayload {
     pub timestamp: RtmpTimestamp,
     pub type_id: u8,
     pub message_stream_id: u32,
-    pub data: Vec<u8>,
+    pub data: Bytes,
 }
 
 impl fmt::Debug for MessagePayload {
@@ -29,33 +30,34 @@ impl MessagePayload {
             timestamp: RtmpTimestamp::new(0),
             message_stream_id: 0,
             type_id: 0,
-            data: Vec::new(),
+            data: Bytes::new(),
         }
     }
 
     pub fn to_rtmp_message(&self) -> Result<RtmpMessage, MessageDeserializationError> {
         match self.type_id {
-            1 => types::set_chunk_size::deserialize(&self.data[..]),
-            2 => types::abort::deserialize(&self.data[..]),
-            3 => types::acknowledgement::deserialize(&self.data[..]),
-            4 => types::user_control::deserialize(&self.data[..]),
-            5 => types::window_acknowledgement_size::deserialize(&self.data[..]),
-            6 => types::set_peer_bandwidth::deserialize(&self.data[..]),
-            8 => types::audio_data::deserialize(&self.data[..]),
-            9 => types::video_data::deserialize(&self.data[..]),
-            18 => types::amf0_data::deserialize(&self.data[..]),
-            20 => types::amf0_command::deserialize(&self.data[..]),
+            1 => types::set_chunk_size::deserialize(self.data.clone()),
+            2 => types::abort::deserialize(self.data.clone()),
+            3 => types::acknowledgement::deserialize(self.data.clone()),
+            4 => types::user_control::deserialize(self.data.clone()),
+            5 => types::window_acknowledgement_size::deserialize(self.data.clone()),
+            6 => types::set_peer_bandwidth::deserialize(self.data.clone()),
+            8 => types::audio_data::deserialize(self.data.clone()),
+            9 => types::video_data::deserialize(self.data.clone()),
+            18 => types::amf0_data::deserialize(self.data.clone()),
+            20 => types::amf0_command::deserialize(self.data.clone()),
 
             // For some reason Flash players (like wowza's test player) send messages
             // that are flagged as amf3 encoded, but in reality they are amf0 encoded
-            15 => types::amf0_data::deserialize(&self.data[..]),
+            15 => types::amf0_data::deserialize(self.data.clone()),
 
             17 => {
                 // Fake amf3 commands usually seem to have a 0 in front of the amf0 data.
                 if self.data.len() > 0 && self.data[0] == 0x00 {
-                    types::amf0_command::deserialize(&self.data[1..])
+                    let slice = self.data.slice_from(1);
+                    types::amf0_command::deserialize(slice)
                 } else {
-                    types::amf0_command::deserialize(&self.data[..])
+                    types::amf0_command::deserialize(self.data.clone())
                 }
             },
 
@@ -113,6 +115,7 @@ impl MessagePayload {
 #[cfg(test)]
 mod tests {
     use super::{RtmpMessage, MessagePayload};
+    use bytes::{Bytes, BytesMut, BufMut};
     use ::messages::{PeerBandwidthLimitType, UserControlEventType};
     use ::time::RtmpTimestamp;
     use rml_amf0::Amf0Value;
@@ -179,7 +182,7 @@ mod tests {
     fn can_get_payload_from_audio_data_message() {
         let timestamp = RtmpTimestamp::new(55);
         let stream_id = 52;
-        let message = RtmpMessage::AudioData { data: vec![33_u8] };
+        let message = RtmpMessage::AudioData { data: Bytes::from(vec![33_u8]) };
         let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
@@ -236,7 +239,7 @@ mod tests {
     fn can_get_payload_from_video_data_message() {
         let timestamp = RtmpTimestamp::new(55);
         let stream_id = 52;
-        let message = RtmpMessage::VideoData { data: vec![23_u8] };
+        let message = RtmpMessage::VideoData { data: Bytes::from(vec![23_u8]) };
         let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
@@ -262,7 +265,7 @@ mod tests {
     fn can_get_payload_from_unknown_message() {
         let timestamp = RtmpTimestamp::new(55);
         let stream_id = 52;
-        let message = RtmpMessage::Unknown { type_id: 33, data: vec![23_u8] };
+        let message = RtmpMessage::Unknown { type_id: 33, data: Bytes::from(vec![23_u8]) };
         let result = MessagePayload::from_rtmp_message(message, timestamp, stream_id).unwrap();
 
         assert_ne!(result.data.len(), 0, "Empty payload data seen");
@@ -315,7 +318,7 @@ mod tests {
 
     #[test]
     fn can_get_rtmp_message_for_audio_data_payload() {
-        let message = RtmpMessage::AudioData { data: vec![3_u8]};
+        let message = RtmpMessage::AudioData { data: Bytes::from(vec![3_u8])};
         let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
@@ -357,7 +360,7 @@ mod tests {
 
     #[test]
     fn can_get_rtmp_message_for_video_data_payload() {
-        let message = RtmpMessage::VideoData {data: vec![3_u8]};
+        let message = RtmpMessage::VideoData {data: Bytes::from(vec![3_u8])};
         let payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         let result = payload.to_rtmp_message().unwrap();
 
@@ -385,7 +388,11 @@ mod tests {
 
         let mut payload = MessagePayload::from_rtmp_message(message.clone(), RtmpTimestamp::new(0), 15).unwrap();
         payload.type_id = 17;
-        payload.data.insert(0, 0x00);
+
+        let mut new_data = BytesMut::with_capacity(payload.data.len() + 1);
+        new_data.put(0 as u8);
+        new_data.extend_from_slice(&payload.data);
+        payload.data = new_data.freeze();
 
         let result = payload.to_rtmp_message().unwrap();
 

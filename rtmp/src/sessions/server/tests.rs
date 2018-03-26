@@ -356,7 +356,7 @@ fn can_receive_audio_data_on_published_stream() {
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_publishing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
 
-    let message = RtmpMessage::AudioData {data: vec![1_u8, 2_u8, 3_u8]};
+    let message = RtmpMessage::AudioData {data: Bytes::from(vec![1_u8, 2_u8, 3_u8])};
     let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
     let packet = serializer.serialize(&payload, false, false).unwrap();
     let results = session.handle_input(&packet.bytes[..]).unwrap();
@@ -390,7 +390,7 @@ fn can_receive_video_data_on_published_stream() {
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_publishing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
 
-    let message = RtmpMessage::VideoData {data: vec![1_u8, 2_u8, 3_u8]};
+    let message = RtmpMessage::VideoData {data: Bytes::from(vec![1_u8, 2_u8, 3_u8])};
     let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
     let packet = serializer.serialize(&payload, false, false).unwrap();
     let results = session.handle_input(&packet.bytes[..]).unwrap();
@@ -862,9 +862,9 @@ fn can_send_video_data_to_playing_stream() {
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_playing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
 
-    let original_data = vec![1_u8, 2_u8, 3_u8];
+    let original_data = Bytes::from(vec![1_u8, 2_u8, 3_u8]);
     let timestamp = RtmpTimestamp::new(500);
-    let packet = session.send_video_data(stream_id, original_data.to_vec(), timestamp.clone(), false).unwrap();
+    let packet = session.send_video_data(stream_id, original_data.clone(), timestamp.clone(), false).unwrap();
     let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
     let message = payload.to_rtmp_message().unwrap();
 
@@ -892,9 +892,9 @@ fn can_send_audio_data_to_playing_stream() {
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_playing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
 
-    let original_data = vec![1_u8, 2_u8, 3_u8];
+    let original_data = Bytes::from(vec![1_u8, 2_u8, 3_u8]);
     let timestamp = RtmpTimestamp::new(500);
-    let packet = session.send_audio_data(stream_id, original_data.to_vec(), timestamp.clone(), false).unwrap();
+    let packet = session.send_audio_data(stream_id, original_data.clone(), timestamp.clone(), false).unwrap();
     let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
     let message = payload.to_rtmp_message().unwrap();
 

@@ -1,5 +1,6 @@
 use std::io::{Write, Cursor};
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use bytes::Bytes;
 
 use ::time::RtmpTimestamp;
 use ::messages::{MessageDeserializationError, MessageSerializationError, MessageDeserializationErrorKind};
@@ -8,7 +9,7 @@ use ::messages::{RtmpMessage, UserControlEventType};
 pub fn serialize(event_type: UserControlEventType,
                  stream_id: Option<u32>,
                  buffer_length: Option<u32>,
-                 timestamp: Option<RtmpTimestamp>) -> Result<Vec<u8>, MessageSerializationError> {
+                 timestamp: Option<RtmpTimestamp>) -> Result<Bytes, MessageSerializationError> {
     let mut cursor = Cursor::new(Vec::new());
     match event_type {
         UserControlEventType::StreamBegin => write_stream_event(&mut cursor, 0, stream_id)?,
@@ -20,10 +21,11 @@ pub fn serialize(event_type: UserControlEventType,
         UserControlEventType::PingResponse => write_timestamp_event(&mut cursor, 7, timestamp)?
     };
 
-    Ok(cursor.into_inner())
+    let bytes = Bytes::from(cursor.into_inner());
+    Ok(bytes)
 }
 
-pub fn deserialize(data: &[u8]) -> Result<RtmpMessage, MessageDeserializationError> {
+pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationError> {
     let mut cursor = Cursor::new(data);
     let event_type = match cursor.read_u16::<BigEndian>()? {
         0 => UserControlEventType::StreamBegin,
@@ -108,6 +110,7 @@ mod tests {
     use super::{serialize, deserialize};
     use std::io::Cursor;
     use byteorder::{BigEndian, WriteBytesExt};
+    use bytes::Bytes;
     
     use ::time::RtmpTimestamp;
     use ::messages::{RtmpMessage, UserControlEventType};
@@ -126,7 +129,7 @@ mod tests {
             None,
             None).unwrap();
 
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -143,7 +146,7 @@ mod tests {
             None,
             None).unwrap();
 
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -160,7 +163,7 @@ mod tests {
             None,
             None).unwrap();
 
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -179,7 +182,7 @@ mod tests {
             Some(buffer_length),
             None).unwrap();
 
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -196,7 +199,7 @@ mod tests {
             None,
             None).unwrap();
 
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -213,7 +216,7 @@ mod tests {
             None,
             Some(RtmpTimestamp::new(time))).unwrap();
 
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -230,7 +233,7 @@ mod tests {
             None,
             Some(RtmpTimestamp::new(time))).unwrap();
 
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -246,9 +249,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(0).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -265,9 +268,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(1).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -284,9 +287,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(2).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -305,9 +308,9 @@ mod tests {
         cursor.write_u16::<BigEndian>(3).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
         cursor.write_u32::<BigEndian>(buffer_length).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -324,9 +327,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(4).unwrap();
         cursor.write_u32::<BigEndian>(stream_id).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -343,9 +346,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(6).unwrap();
         cursor.write_u32::<BigEndian>(time).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -362,9 +365,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u16::<BigEndian>(7).unwrap();
         cursor.write_u32::<BigEndian>(time).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 }

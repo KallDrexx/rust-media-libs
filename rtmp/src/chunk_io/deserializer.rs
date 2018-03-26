@@ -3,7 +3,7 @@ use std::collections::{HashMap};
 use std::io::{Cursor};
 use std::mem;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-use bytes::{BytesMut};
+use bytes::{BytesMut, BufMut};
 use ::chunk_io::{ChunkDeserializationError, ChunkDeserializationErrorKind};
 use ::messages::MessagePayload;
 use super::chunk_header::{ChunkHeader, ChunkHeaderFormat};
@@ -22,6 +22,7 @@ pub struct ChunkDeserializer {
     current_header: ChunkHeader,
     current_stage: ParseStage,
     current_payload: MessagePayload,
+    current_payload_data: BytesMut,
     buffer: BytesMut,
     previous_headers: HashMap<u32, ChunkHeader>,
 }
@@ -57,6 +58,7 @@ impl ChunkDeserializer {
             buffer: BytesMut::with_capacity(4096),
             previous_headers: HashMap::new(),
             current_payload: MessagePayload::new(),
+            current_payload_data: BytesMut::new(),
         }
     }
 
@@ -125,7 +127,7 @@ impl ChunkDeserializer {
             // across multiple chunks.  We need to be careful *NOT* to apply the delta to each
             // type 3 chunk that's trying to serve a single message, otherwise timestamps will
             // get out of control.
-            if self.current_payload.data.len() == 0 {
+            if self.current_payload_data.len() == 0 {
                 // Since we don't have any payload data yet, that means this is the first
                 // chunk of the message.  As it's the first chunk this is the only time we should
                 // apply the previous header's delta to the timestamp
@@ -265,9 +267,9 @@ impl ChunkDeserializer {
 
     fn get_message_data(&mut self, message_to_return: &mut Option<MessagePayload>) -> Result<ParseStageResult, ChunkDeserializationError> {
         let mut length = self.current_header.message_length as usize;
+        let current_payload_length = self.current_payload_data.len();
+        let remaining_bytes = length - current_payload_length;
         if length > self.max_chunk_size as usize {
-            let current_payload_length = self.current_payload.data.len();
-            let remaining_bytes = length - current_payload_length;
             length = min(remaining_bytes, self.max_chunk_size as usize);
         }
 
@@ -279,18 +281,21 @@ impl ChunkDeserializer {
         self.current_payload.type_id = self.current_header.message_type_id;
         self.current_payload.message_stream_id = self.current_header.message_stream_id;
 
-        // Make sure the payload vector has enough capacity for the whole message data.  This
+        // Make sure the we have enough capacity for the whole message data.  This
         // helps with performance when there are smaller chunk sizes.
-        let capacity_needed = self.current_header.message_length as usize - self.current_payload.data.capacity();
-        if capacity_needed > 0 {
-            self.current_payload.data.reserve(capacity_needed);
+        if remaining_bytes > self.current_payload_data.remaining_mut() {
+            let capacity_needed = remaining_bytes - self.current_payload_data.remaining_mut();
+            self.current_payload_data.reserve(capacity_needed);
         }
 
         let bytes = self.buffer.split_to(length as usize);
-        self.current_payload.data.extend_from_slice(&bytes[..]);
+        self.current_payload_data.extend_from_slice(&bytes[..]);
 
         // Check if this completes the message
-        if self.current_payload.data.len() == self.current_header.message_length as usize {
+        if self.current_payload_data.len() == self.current_header.message_length as usize {
+            let data = mem::replace(&mut self.current_payload_data, BytesMut::new());
+            self.current_payload.data = data.freeze();
+
             let payload = mem::replace(&mut self.current_payload, MessagePayload::new());
             *message_to_return = Some(payload)
         }

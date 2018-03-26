@@ -12,6 +12,7 @@ pub use self::serializer::{ChunkSerializer, Packet};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
     use ::messages::MessagePayload;
     use ::time::RtmpTimestamp;
 
@@ -21,21 +22,21 @@ mod tests {
             timestamp: RtmpTimestamp::new(55),
             message_stream_id: 1,
             type_id: 15,
-            data: vec![1, 2, 3, 4, 5, 6]
+            data: Bytes::from(vec![1, 2, 3, 4, 5, 6]),
         };
 
         let input2 = MessagePayload {
             timestamp: RtmpTimestamp::new(65),
             message_stream_id: 1,
             type_id: 15,
-            data: vec![8, 9, 10]
+            data: Bytes::from(vec![8, 9, 10]),
         };
 
         let input3 = MessagePayload {
             timestamp: RtmpTimestamp::new(75),
             message_stream_id: 1,
             type_id: 15,
-            data: vec![1, 2, 3]
+            data: Bytes::from(vec![1, 2, 3]),
         };
 
         let mut serializer = ChunkSerializer::new();
@@ -59,21 +60,21 @@ mod tests {
             timestamp: RtmpTimestamp::new(65),
             message_stream_id: 1,
             type_id: 15,
-            data: vec![1, 2, 3, 4, 5, 6]
+            data: Bytes::from(vec![1, 2, 3, 4, 5, 6]),
         };
 
         let input2 = MessagePayload {
             timestamp: RtmpTimestamp::new(55),
             message_stream_id: 1,
             type_id: 15,
-            data: vec![8, 9, 10]
+            data: Bytes::from(vec![8, 9, 10]),
         };
 
         let input3 = MessagePayload {
             timestamp: RtmpTimestamp::new(45),
             message_stream_id: 1,
             type_id: 15,
-            data: vec![1, 2, 3]
+            data: Bytes::from(vec![1, 2, 3]),
         };
 
         let mut serializer = ChunkSerializer::new();

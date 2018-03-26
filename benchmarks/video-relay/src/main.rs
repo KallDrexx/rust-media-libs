@@ -1,8 +1,10 @@
+extern crate bytes;
 extern crate rml_amf0;
 extern crate rml_rtmp;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
+use bytes::Bytes;
 
 use rml_amf0::Amf0Value;
 use rml_rtmp::chunk_io::{ChunkSerializer};
@@ -28,8 +30,11 @@ fn main() {
 
     println!("Running {} iterations", iteration_count);
 
-    let bytes = [1; 10_000];
-    let video_message = RtmpMessage::VideoData {data: bytes.to_vec()};
+    let mut vector = Vec::new();
+    vector.extend_from_slice(&[1_u8; 10_000]);
+
+    let bytes = Bytes::from(vector);
+    let video_message = RtmpMessage::VideoData {data: bytes};
     let video_payload = video_message.into_message_payload(RtmpTimestamp::new(0), 1).unwrap();
     let video_packet = publisher_serializer.serialize(&video_payload, true, true).unwrap();
 

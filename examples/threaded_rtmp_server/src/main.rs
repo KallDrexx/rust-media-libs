@@ -1,3 +1,4 @@
+extern crate bytes;
 extern crate slab;
 extern crate rml_rtmp;
 

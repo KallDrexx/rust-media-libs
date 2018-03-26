@@ -1,10 +1,11 @@
 use std::io::Cursor;
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use bytes::Bytes;
 
 use ::messages::{MessageDeserializationError, MessageSerializationError, MessageDeserializationErrorKind};
 use ::messages::{RtmpMessage, PeerBandwidthLimitType};
 
-pub fn serialize(limit_type: PeerBandwidthLimitType, size: u32) -> Result<Vec<u8>, MessageSerializationError> {
+pub fn serialize(limit_type: PeerBandwidthLimitType, size: u32) -> Result<Bytes, MessageSerializationError> {
     let type_id = match limit_type {
         PeerBandwidthLimitType::Hard => 0,
         PeerBandwidthLimitType::Soft => 1,
@@ -15,10 +16,11 @@ pub fn serialize(limit_type: PeerBandwidthLimitType, size: u32) -> Result<Vec<u8
     cursor.write_u32::<BigEndian>(size)?;
     cursor.write_u8(type_id)?;
 
-    Ok(cursor.into_inner())
+    let bytes = Bytes::from(cursor.into_inner());
+    Ok(bytes)
 }
 
-pub fn deserialize(data: &[u8]) -> Result<RtmpMessage, MessageDeserializationError> {
+pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationError> {
     let mut cursor = Cursor::new(data);
     let size = cursor.read_u32::<BigEndian>()?;
     let limit_type = match cursor.read_u8()? {
@@ -39,6 +41,7 @@ mod tests {
     use super::{serialize, deserialize};
     use std::io::Cursor;
     use byteorder::{BigEndian, WriteBytesExt};
+    use bytes::Bytes;
 
     use ::messages::{RtmpMessage, PeerBandwidthLimitType};
 
@@ -52,7 +55,7 @@ mod tests {
         let expected = cursor.into_inner();
 
         let raw_message = serialize(PeerBandwidthLimitType::Soft, size).unwrap();
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -65,7 +68,7 @@ mod tests {
         let expected = cursor.into_inner();
 
         let raw_message = serialize(PeerBandwidthLimitType::Hard, size).unwrap();
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -78,7 +81,7 @@ mod tests {
         let expected = cursor.into_inner();
 
         let raw_message = serialize(PeerBandwidthLimitType::Dynamic, size).unwrap();
-        assert_eq!(raw_message, expected);
+        assert_eq!(&raw_message[..], &expected[..]);
     }
 
     #[test]
@@ -89,9 +92,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u32::<BigEndian>(size).unwrap();
         cursor.write_u8(0).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -103,9 +106,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u32::<BigEndian>(size).unwrap();
         cursor.write_u8(1).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -117,9 +120,9 @@ mod tests {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u32::<BigEndian>(size).unwrap();
         cursor.write_u8(2).unwrap();
-        let data = cursor.into_inner();
 
-        let result = deserialize(&data[..]).unwrap();
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
 }
