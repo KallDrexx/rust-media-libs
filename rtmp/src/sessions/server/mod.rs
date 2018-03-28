@@ -268,6 +268,21 @@ impl ServerSession {
         Ok(packet)
     }
 
+    /// Sends a ping request to the client
+    pub fn send_ping_request(&mut self) -> Result<(Packet, RtmpTimestamp), ServerSessionError> {
+        let epoch = self.get_epoch();
+        let message = RtmpMessage::UserControl {
+            event_type: UserControlEventType::PingRequest,
+            timestamp: Some(epoch.clone()),
+            buffer_length: None,
+            stream_id: None,
+        };
+
+        let payload = message.into_message_payload(epoch.clone(), 0)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok((packet, epoch))
+    }
+
     fn handle_abort_message(&self, _stream_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         Ok(Vec::new())
     }
@@ -737,9 +752,31 @@ impl ServerSession {
         Ok(Vec::new())
     }
 
-    fn handle_user_control(&self, _event_type: UserControlEventType, _stream_id: Option<u32>, _buffer_length: Option<u32>, _timestamp: Option<RtmpTimestamp>)
+    fn handle_user_control(&mut self, event_type: UserControlEventType, _stream_id: Option<u32>, _buffer_length: Option<u32>, timestamp: Option<RtmpTimestamp>)
         -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        Ok(Vec::new())
+
+        match event_type {
+            UserControlEventType::PingRequest => {
+                let message = RtmpMessage::UserControl {
+                    event_type: UserControlEventType::PingResponse,
+                    stream_id: None,
+                    buffer_length: None,
+                    timestamp,
+                };
+
+                let payload = message.into_message_payload(self.get_epoch(), 0)?;
+                let response = self.serializer.serialize(&payload, false, false)?;
+                Ok(vec![ServerSessionResult::OutboundResponse(response)])
+            },
+
+            UserControlEventType::PingResponse => {
+                let timestamp = timestamp.unwrap_or(RtmpTimestamp::new(0));
+                let event = ServerSessionEvent::PingResponseReceived {timestamp};
+                Ok(vec![ServerSessionResult::RaisedEvent(event)])
+            }
+
+            _ => Ok(Vec::new())
+        }
     }
 
     fn handle_video_data(&self, data: Bytes, stream_id: u32, timestamp: RtmpTimestamp) -> Result<Vec<ServerSessionResult>, ServerSessionError> {

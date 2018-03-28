@@ -110,9 +110,4 @@ pub enum ServerSessionEvent {
     PingResponseReceived {
         timestamp: RtmpTimestamp,
     },
-
-    /// The server has sent a ping request to the client.
-    PingRequestSent {
-        timestamp: RtmpTimestamp,
-    }
 }

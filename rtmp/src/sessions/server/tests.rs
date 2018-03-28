@@ -908,6 +908,98 @@ fn can_send_audio_data_to_playing_stream() {
     }
 }
 
+#[test]
+fn automatically_responds_to_ping_requests() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::UserControl {
+        event_type: UserControlEventType::PingRequest,
+        timestamp: Some(RtmpTimestamp::new(5230)),
+        stream_id: None,
+        buffer_length: None,
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(6000), 0).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+
+    assert_eq!(responses.len(), 1, "Expected one response for handling ping request");
+    match responses.remove(0) {
+        (_, RtmpMessage::UserControl {event_type, timestamp: Some(timestamp), stream_id: None, buffer_length: None}) => {
+            assert_eq!(event_type, UserControlEventType::PingResponse, "Unexpected event type");
+            assert_eq!(timestamp, RtmpTimestamp::new(5230), "Unexpected timestamp");
+        },
+
+        x => panic!("Expected PingResponse, found {:?}", x),
+    }
+}
+
+#[test]
+fn event_raised_when_ping_response_received() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::UserControl {
+        event_type: UserControlEventType::PingResponse,
+        timestamp: Some(RtmpTimestamp::new(5230)),
+        stream_id: None,
+        buffer_length: None,
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(6000), 0).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "One event expected");
+    match events.remove(0) {
+        ServerSessionEvent::PingResponseReceived {timestamp} => {
+            assert_eq!(timestamp, RtmpTimestamp::new(5230), "Unexpected timestamp received");
+        },
+
+        x => panic!("Expected PingResponse event, instead received {:?}", x),
+    }
+}
+
+#[test]
+fn can_send_ping_request() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+
+    let (packet, sent_timestamp) = session.send_ping_request().unwrap();
+    let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
+    let message = payload.to_rtmp_message().unwrap();
+
+    match message {
+        RtmpMessage::UserControl { event_type, timestamp: Some(timestamp), buffer_length: None, stream_id: None } => {
+            assert_eq!(event_type, UserControlEventType::PingRequest, "Unexpected user control event type");
+            assert_eq!(timestamp, sent_timestamp, "Unexpected timestamp in outbound message");
+        },
+
+        x => panic!("Expected PingRequest being sent, instead found {:?}", x),
+    }
+}
+
 fn get_basic_config() -> ServerSessionConfig {
     ServerSessionConfig {
         chunk_size: DEFAULT_CHUNK_SIZE,
