@@ -50,7 +50,6 @@ pub struct ServerSession {
     start_time: SystemTime,
     serializer: ChunkSerializer,
     deserializer: ChunkDeserializer,
-    self_window_ack_size: u32,
     connected_app_name: Option<String>,
     outstanding_requests: HashMap<u32, OutstandingRequest>,
     next_request_number: u32,
@@ -59,6 +58,9 @@ pub struct ServerSession {
     object_encoding: f64,
     active_streams: HashMap<u32, ActiveStream>,
     next_stream_id: u32,
+    peer_window_ack_size: Option<u32>,
+    bytes_received: u64,
+    bytes_received_since_last_ack: u32,
 }
 
 impl ServerSession {
@@ -72,7 +74,6 @@ impl ServerSession {
             start_time: SystemTime::now(),
             serializer: ChunkSerializer::new(),
             deserializer: ChunkDeserializer::new(),
-            self_window_ack_size: config.window_ack_size,
             connected_app_name: None,
             outstanding_requests: HashMap::new(),
             next_request_number: 0,
@@ -81,6 +82,9 @@ impl ServerSession {
             object_encoding: 0.0,
             active_streams: HashMap::new(),
             next_stream_id: 1,
+            peer_window_ack_size: None,
+            bytes_received: 0,
+            bytes_received_since_last_ack: 0,
         };
 
         let mut results = Vec::with_capacity(4);
@@ -88,7 +92,7 @@ impl ServerSession {
         let chunk_size_packet = session.serializer.set_max_chunk_size(config.chunk_size, RtmpTimestamp::new(0))?;
         results.push(ServerSessionResult::OutboundResponse(chunk_size_packet));
 
-        let window_ack_message = RtmpMessage::WindowAcknowledgement {size: session.self_window_ack_size};
+        let window_ack_message = RtmpMessage::WindowAcknowledgement {size: config.window_ack_size};
         let window_ack_payload = window_ack_message.into_message_payload(session.get_epoch(), 0)?;
         let window_ack_packet = session.serializer.serialize(&window_ack_payload, true, false)?;
         results.push(ServerSessionResult::OutboundResponse(window_ack_packet));
@@ -127,6 +131,20 @@ impl ServerSession {
     /// be reacted to.
     pub fn handle_input(&mut self, bytes: &[u8]) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         let mut results = Vec::new();
+        self.bytes_received += bytes.len() as u64;
+
+        if let Some(peer_ack_size) = self.peer_window_ack_size {
+            self.bytes_received_since_last_ack += bytes.len() as u32;
+            if self.bytes_received_since_last_ack >= peer_ack_size {
+                let ack_message = RtmpMessage::Acknowledgement {sequence_number: self.bytes_received_since_last_ack};
+                let ack_payload = ack_message.into_message_payload(self.get_epoch(), 0)?;
+                let ack_packet = self.serializer.serialize(&ack_payload, false, false)?;
+
+                self.bytes_received_since_last_ack = 0;
+                results.push(ServerSessionResult::OutboundResponse(ack_packet));
+            }
+        }
+
         let mut bytes_to_process = bytes;
 
         loop {
@@ -287,8 +305,9 @@ impl ServerSession {
         Ok(Vec::new())
     }
 
-    fn handle_acknowledgement_message(&self, _sequence_number: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        Ok(Vec::new())
+    fn handle_acknowledgement_message(&self, sequence_number: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        let event = ServerSessionEvent::AcknowledgementReceived {bytes_received: sequence_number};
+        Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
     fn handle_amf0_command(&mut self,
@@ -811,7 +830,8 @@ impl ServerSession {
         Ok(vec![ServerSessionResult::RaisedEvent(event)])
     }
 
-    fn handle_window_acknowledgement(&self, _size: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+    fn handle_window_acknowledgement(&mut self, size: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        self.peer_window_ack_size = Some(size);
         Ok(Vec::new())
     }
 

@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::HashMap;
+use bytes::BytesMut;
 use rml_amf0::Amf0Value;
 use ::messages::{RtmpMessage, PeerBandwidthLimitType, UserControlEventType, MessagePayload};
 use ::chunk_io::{ChunkDeserializer};
@@ -997,6 +998,87 @@ fn can_send_ping_request() {
         },
 
         x => panic!("Expected PingRequest being sent, instead found {:?}", x),
+    }
+}
+
+#[test]
+fn sends_ack_after_receiving_window_ack_bytes_received() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+
+    let window_ack_message = RtmpMessage::WindowAcknowledgement {size: 100};
+    let window_ack_payload = window_ack_message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let window_ack_packet = serializer.serialize(&window_ack_payload, false, false).unwrap();
+    let results = session.handle_input(&window_ack_packet.bytes[..]).unwrap();
+    consume_results(&mut deserializer, results);
+
+    let mut bytes = BytesMut::new();
+    bytes.extend_from_slice(&[1; 101]);
+    let video_message = RtmpMessage::VideoData {data: bytes.freeze()};
+    let video_payload = video_message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let video_packet = serializer.serialize(&video_payload, false, false).unwrap();
+    let results = session.handle_input(&video_packet.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    match responses.remove(0) {
+        (_, RtmpMessage::Acknowledgement {sequence_number: _}) => (), // No good way to predict sequence number
+        x => panic!("Expected Acknowledgement, instead received: {:?}", x),
+    }
+
+    let mut bytes = BytesMut::new();
+    bytes.extend_from_slice(&[1; 1]);
+    let video_message = RtmpMessage::VideoData {data: bytes.freeze()};
+    let video_payload = video_message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let video_packet = serializer.serialize(&video_payload, false, false).unwrap();
+    let results = session.handle_input(&video_packet.bytes[..]).unwrap();
+    let (responses, _) = split_results(&mut deserializer, results);
+    assert_eq!(responses.len(), 0, "Expected no responses");
+
+    let mut bytes = BytesMut::new();
+    bytes.extend_from_slice(&[1; 100]);
+    let video_message = RtmpMessage::VideoData {data: bytes.freeze()};
+    let video_payload = video_message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let video_packet = serializer.serialize(&video_payload, false, false).unwrap();
+    let results = session.handle_input(&video_packet.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    match responses.remove(0) {
+        (_, RtmpMessage::Acknowledgement {sequence_number: _}) => (), // No good way to predict sequence number
+        x => panic!("Expected Acknowledgement, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn event_raised_when_client_sends_an_acknowledgement() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(test_app_name.as_ref(), &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::Acknowledgement {sequence_number: 1234};
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events");
+    match events.remove(0) {
+        ServerSessionEvent::AcknowledgementReceived {bytes_received} => {
+            assert_eq!(bytes_received, 1234, "Incorrect number of bytes received in event");
+        },
+
+        x => panic!("Expected acknowledgement received event, instead got: {:?}", x),
     }
 }
 
