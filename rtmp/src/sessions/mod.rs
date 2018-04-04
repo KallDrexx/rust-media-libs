@@ -5,6 +5,14 @@
 /// perform custom logic on.
 
 mod server;
+mod client;
+
+pub use self::client::ClientSession;
+pub use self::client::ClientSessionEvent;
+pub use self::client::ClientSessionConfig;
+pub use self::client::ClientSessionError;
+pub use self::client::ClientSessionErrorKind;
+pub use self::client::ClientSessionResult;
 
 pub use self::server::ServerSession;
 pub use self::server::ServerSessionEvent;

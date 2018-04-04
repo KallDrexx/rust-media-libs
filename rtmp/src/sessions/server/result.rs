@@ -6,7 +6,7 @@ use super::events::ServerSessionEvent;
 #[derive(PartialEq, Debug)]
 pub enum ServerSessionResult {
     /// A packet that is slated to be sent to the peer.  This packet should *ALWAYS* be sent
-    /// in the order it consumed and can only be dropped if it has explicitely been marked as
+    /// in the order it consumed and can only be dropped if it has explicitly been marked as
     /// able to be dropped.  Failing to do so may cause RTMP chunk deserialization errors on the
     /// other end due to RTMP chunk header compression.
     OutboundResponse(Packet),

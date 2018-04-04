@@ -3,7 +3,7 @@ use failure::{Backtrace, Fail};
 use ::chunk_io::{ChunkSerializationError, ChunkDeserializationError};
 use ::messages::{MessageSerializationError, MessageDeserializationError};
 
-/// Error state when a server session encounters and error
+/// Error state when a server session encounters an error
 #[derive(Debug)]
 pub struct ServerSessionError {
     pub kind: ServerSessionErrorKind,
