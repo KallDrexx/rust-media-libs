@@ -60,6 +60,53 @@ fn can_process_connect_success_response() {
     }
 }
 
+#[test]
+fn event_raised_when_connect_request_rejected() {
+    let app_name = "test".to_string();
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+
+    let results = session.request_connection(app_name.clone()).unwrap();
+    consume_results(&mut deserializer, vec![results]);
+
+    let response = get_connect_error_response(&mut serializer);
+    let results = session.handle_input(&response.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Expected one event returned");
+    match events.remove(0) {
+        ClientSessionEvent::ConnectionRequestRejected {description} => {
+            assert!(description.len() > 0, "Expected a non-empty description");
+        },
+
+        x => panic!("Expected connection accepted event, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn error_thrown_when_connect_request_made_after_successful_connection() {
+    let app_name = "test".to_string();
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+
+    let results = session.request_connection(app_name.clone()).unwrap();
+    consume_results(&mut deserializer, vec![results]);
+
+    let response = get_connect_success_response(&mut serializer);
+    let results = session.handle_input(&response.bytes[..]).unwrap();
+    consume_results(&mut deserializer, results);
+
+    let error = session.request_connection(app_name.clone()).unwrap_err();
+    match error.kind {
+        ClientSessionErrorKind::CantConnectWhileAlreadyConnected => (),
+        x => panic!("Expected CantConnectWhileAlreadyConnected, instead found {:?}", x),
+    }
+}
+
 fn split_results(deserializer: &mut ChunkDeserializer, mut results: Vec<ClientSessionResult>)
     -> (Vec<(MessagePayload, RtmpMessage)>, Vec<ClientSessionEvent>) {
     let mut responses = Vec::new();
@@ -111,6 +158,28 @@ fn get_connect_success_response(serializer: &mut ChunkSerializer) -> Packet {
 
     let message = RtmpMessage::Amf0Command {
         command_name: "_result".to_string(),
+        transaction_id: 1.0,
+        command_object: Amf0Value::Object(command_properties),
+        additional_arguments: vec![Amf0Value::Object(additional_properties)],
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    serializer.serialize(&payload, false, false).unwrap()
+}
+
+fn get_connect_error_response(serializer: &mut ChunkSerializer) -> Packet {
+    let mut command_properties = HashMap::new();
+    command_properties.insert("fmsVer".to_string(), Amf0Value::Utf8String("fms".to_string()));
+    command_properties.insert("capabilities".to_string(), Amf0Value::Number(31.0));
+
+    let mut additional_properties = HashMap::new();
+    additional_properties.insert("level".to_string(), Amf0Value::Utf8String("error".to_string()));
+    additional_properties.insert("code".to_string(), Amf0Value::Utf8String("NetConnection.Connect.Failed".to_string()));
+    additional_properties.insert("description".to_string(), Amf0Value::Utf8String("hi".to_string()));
+    additional_properties.insert("objectEncoding".to_string(), Amf0Value::Number(0.0));
+
+    let message = RtmpMessage::Amf0Command {
+        command_name: "_error".to_string(),
         transaction_id: 1.0,
         command_object: Amf0Value::Object(command_properties),
         additional_arguments: vec![Amf0Value::Object(additional_properties)],

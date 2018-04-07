@@ -27,6 +27,10 @@ pub enum ClientSessionErrorKind {
     /// Encountered when an error occurs while turning a message payload into an RTMP message
     #[fail(display = "An error occurred while attempting to turn a message payload into an RTMP message: {}", _0)]
     MessageDeserializationError(#[cause] MessageDeserializationError),
+
+    /// Encountered if a connection request is made while we are already connected
+    #[fail(display = "A connection request was attempted while this session is already in a connected state")]
+    CantConnectWhileAlreadyConnected,
 }
 
 impl fmt::Display for ClientSessionError {

@@ -96,6 +96,14 @@ impl ClientSession {
     }
 
     pub fn request_connection(&mut self, app_name: String) -> Result<ClientSessionResult, ClientSessionError> {
+        match self.current_state {
+            ClientState::Disconnected => (),
+            _ => {
+                let kind = ClientSessionErrorKind::CantConnectWhileAlreadyConnected;
+                return Err(ClientSessionError {kind});
+            },
+        }
+
         let transaction_id = self.get_next_transaction_id();
         let transaction = OutstandingTransaction::ConnectionRequested {app_name: app_name.clone()};
         self.outstanding_transactions.insert(transaction_id as u32, transaction);
@@ -124,7 +132,8 @@ impl ClientSession {
                            command_object: Amf0Value,
                            additional_args: Vec<Amf0Value>) -> ClientResult {
         match name.as_str() {
-            "_result" => self.handle_amf0_command_result(transaction_id, command_object, additional_args),
+            "_result" => self.handle_amf0_command_success_result(transaction_id, command_object, additional_args),
+            "_error" => self.handle_amf0_command_failed_result(transaction_id, command_object, additional_args),
 
             _ => {
                 let event = ClientSessionEvent::UnhandleableAmf0Command {
@@ -139,10 +148,10 @@ impl ClientSession {
         }
     }
 
-    fn handle_amf0_command_result(&mut self,
-                                  transaction_id: f64,
-                                  command_object: Amf0Value,
-                                  additional_args: Vec<Amf0Value>) -> ClientResult {
+    fn handle_amf0_command_failed_result(&mut self,
+                                         transaction_id: f64,
+                                         command_object: Amf0Value,
+                                         mut additional_args: Vec<Amf0Value>) -> ClientResult {
         let outstanding_transaction = match self.outstanding_transactions.remove(&(transaction_id as u32)) {
             Some(transaction) => transaction,
             None => {
@@ -157,15 +166,51 @@ impl ClientSession {
         };
 
         match outstanding_transaction {
-            OutstandingTransaction::ConnectionRequested {app_name}
-                => self.handle_connection_request_result(app_name)
+            OutstandingTransaction::ConnectionRequested {app_name: _} => {
+                let description = if additional_args.len() > 0 {
+                    if let Amf0Value::Object(mut properties) = additional_args.remove(0) {
+                        if let Some(Amf0Value::Utf8String(value)) = properties.remove("description") {
+                            value
+                        } else {
+                            "".to_string()
+                        }
+                    } else {
+                        "".to_string()
+                    }
+                } else {
+                    "".to_string()
+                };
+
+                let event = ClientSessionEvent::ConnectionRequestRejected {description};
+                Ok(vec![ClientSessionResult::RaisedEvent(event)])
+            }
         }
     }
 
-    fn handle_connection_request_result(&mut self, app_name: String) -> ClientResult {
-        self.current_state = ClientState::Connected {app_name};
-        let event = ClientSessionEvent::ConnectionRequestAccepted;
-        Ok(vec![ClientSessionResult::RaisedEvent(event)])
+    fn handle_amf0_command_success_result(&mut self,
+                                          transaction_id: f64,
+                                          command_object: Amf0Value,
+                                          additional_args: Vec<Amf0Value>) -> ClientResult {
+        let outstanding_transaction = match self.outstanding_transactions.remove(&(transaction_id as u32)) {
+            Some(transaction) => transaction,
+            None => {
+                let event = ClientSessionEvent::UnknownTransactionResultReceived {
+                    additional_values: additional_args,
+                    command_object,
+                    transaction_id,
+                };
+
+                return Ok(vec![ClientSessionResult::RaisedEvent(event)]);
+            },
+        };
+
+        match outstanding_transaction {
+            OutstandingTransaction::ConnectionRequested {app_name} => {
+                self.current_state = ClientState::Connected {app_name};
+                let event = ClientSessionEvent::ConnectionRequestAccepted;
+                Ok(vec![ClientSessionResult::RaisedEvent(event)])
+            },
+        }
     }
 
     fn get_epoch(&self) -> RtmpTimestamp {
