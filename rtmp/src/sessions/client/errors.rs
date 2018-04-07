@@ -2,6 +2,7 @@ use std::fmt;
 use failure::{Backtrace, Fail};
 use ::chunk_io::{ChunkSerializationError, ChunkDeserializationError};
 use ::messages::{MessageSerializationError, MessageDeserializationError};
+use ::sessions::ClientState;
 
 /// Error state when a client session encounters an error
 #[derive(Debug)]
@@ -31,6 +32,30 @@ pub enum ClientSessionErrorKind {
     /// Encountered if a connection request is made while we are already connected
     #[fail(display = "A connection request was attempted while this session is already in a connected state")]
     CantConnectWhileAlreadyConnected,
+
+    /// Encountered if a request is made, or a response is received for a request while the
+    /// client session is not in a valid state for that purpose.
+    #[fail(display = "The request could not be performed while the session is in the {:?} state", current_state)]
+    SessionInInvalidState {
+        current_state: ClientState
+    },
+
+    /// Encountered when the client requests a stream be created and the server rejects the command
+    #[fail(display = "An attempt to create a stream on the server failed")]
+    CreateStreamFailed,
+
+    /// A response to a `createStream` request should have a numeric as the first parameter
+    /// in the additional values property of the amf0 command.  This error is thrown if this is
+    /// not present.  Without a stream ID we have no way to know what stream to communicate with
+    /// for playback/publishing messages.
+    #[fail(display = "The server sent a create stream success result without a stream id")]
+    CreateStreamResponseHadNoStreamNumber,
+
+    /// When the server sends and `onStatus` message, it is expected that the additional arguments
+    /// contains a single value representing an amf0 object.  This is required because the object
+    /// should have a `code` property that says the type of operation the status is for.
+    #[fail(display = "The server sent an onStatus message with invalid arguments")]
+    InvalidOnStatusArguments,
 }
 
 impl fmt::Display for ClientSessionError {

@@ -12,6 +12,11 @@ pub enum ClientSessionEvent {
         description: String,
     },
 
+    /// The server has accepted our request to play video back from a stream key
+    PlaybackRequestAccepted {
+        stream_key: String,
+    },
+
     /// The server sent an Amf0 command that was not able to be handled
     UnhandleableAmf0Command {
         command_name: String,
@@ -26,4 +31,10 @@ pub enum ClientSessionEvent {
         command_object: Amf0Value,
         additional_values: Vec<Amf0Value>,
     },
+
+    /// The server sent an `onStatus` message with a `code` property that we don't know
+    /// how to handle.
+    UnhandleableOnStatusCode {
+        code: String,
+    }
 }

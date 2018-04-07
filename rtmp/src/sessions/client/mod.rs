@@ -12,13 +12,13 @@ pub use self::events::ClientSessionEvent;
 pub use self::config::ClientSessionConfig;
 pub use self::result::ClientSessionResult;
 pub use self::errors::{ClientSessionError, ClientSessionErrorKind};
+pub use self::state::ClientState;
 
-use self::outstanding_transaction::OutstandingTransaction;
-use self::state::ClientState;
+use self::outstanding_transaction::{OutstandingTransaction, TransactionPurpose};
 use std::collections::HashMap;
 use std::time::SystemTime;
 use chunk_io::{ChunkSerializer, ChunkDeserializer};
-use messages::RtmpMessage;
+use messages::{RtmpMessage, UserControlEventType};
 use rml_amf0::Amf0Value;
 use time::RtmpTimestamp;
 
@@ -53,6 +53,8 @@ pub struct ClientSession {
     next_transaction_id: u32,
     outstanding_transactions: HashMap<u32, OutstandingTransaction>,
     current_state: ClientState,
+    connected_app_name: Option<String>,
+    active_stream_id: Option<u32>,
 }
 
 impl ClientSession {
@@ -64,6 +66,8 @@ impl ClientSession {
             next_transaction_id: 1,
             outstanding_transactions: HashMap::new(),
             current_state: ClientState::Disconnected,
+            active_stream_id: None,
+            connected_app_name: None,
             config,
         };
 
@@ -106,7 +110,7 @@ impl ClientSession {
 
         let transaction_id = self.get_next_transaction_id();
         let transaction = OutstandingTransaction::ConnectionRequested {app_name: app_name.clone()};
-        self.outstanding_transactions.insert(transaction_id as u32, transaction);
+        self.outstanding_transactions.insert(transaction_id, transaction);
 
         let mut properties = HashMap::new();
         properties.insert("app".to_string(), Amf0Value::Utf8String(app_name));
@@ -126,6 +130,35 @@ impl ClientSession {
         Ok(ClientSessionResult::OutboundResponse(packet))
     }
 
+    pub fn request_playback(&mut self, stream_key: String) -> Result<ClientSessionResult, ClientSessionError> {
+        match self.current_state {
+            ClientState::Connected => (),
+            _ => {
+                let kind = ClientSessionErrorKind::SessionInInvalidState {current_state: self.current_state.clone()};
+                return Err(ClientSessionError {kind});
+            }
+        }
+
+        let transaction_id = self.get_next_transaction_id();
+        let transaction = OutstandingTransaction::CreateStream {
+            purpose: TransactionPurpose::PlayRequest {stream_key}
+        };
+
+        self.outstanding_transactions.insert(transaction_id, transaction);
+
+        let message = RtmpMessage::Amf0Command {
+            command_name: "createStream".to_string(),
+            transaction_id: transaction_id as f64,
+            command_object: Amf0Value::Null,
+            additional_arguments: Vec::new(),
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), 0)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+
+        Ok(ClientSessionResult::OutboundResponse(packet))
+    }
+
     fn handle_amf0_command(&mut self,
                            name: String,
                            transaction_id: f64,
@@ -134,6 +167,7 @@ impl ClientSession {
         match name.as_str() {
             "_result" => self.handle_amf0_command_success_result(transaction_id, command_object, additional_args),
             "_error" => self.handle_amf0_command_failed_result(transaction_id, command_object, additional_args),
+            "onStatus" => self.handle_on_status_command(additional_args),
 
             _ => {
                 let event = ClientSessionEvent::UnhandleableAmf0Command {
@@ -183,6 +217,11 @@ impl ClientSession {
 
                 let event = ClientSessionEvent::ConnectionRequestRejected {description};
                 Ok(vec![ClientSessionResult::RaisedEvent(event)])
+            },
+
+            OutstandingTransaction::CreateStream {purpose: _} => {
+                let kind = ClientSessionErrorKind::CreateStreamFailed;
+                return Err(ClientSessionError {kind});
             }
         }
     }
@@ -206,11 +245,111 @@ impl ClientSession {
 
         match outstanding_transaction {
             OutstandingTransaction::ConnectionRequested {app_name} => {
-                self.current_state = ClientState::Connected {app_name};
+                self.current_state = ClientState::Connected;
+                self.connected_app_name = Some(app_name);
+
+                let message = RtmpMessage::WindowAcknowledgement {size: self.config.window_ack_size};
+                let payload = message.into_message_payload(self.get_epoch(), 0)?;
+                let packet = self.serializer.serialize(&payload, false, false)?;
                 let event = ClientSessionEvent::ConnectionRequestAccepted;
-                Ok(vec![ClientSessionResult::RaisedEvent(event)])
+                Ok(vec![
+                    ClientSessionResult::OutboundResponse(packet),
+                    ClientSessionResult::RaisedEvent(event)],
+                )
             },
+
+            OutstandingTransaction::CreateStream {purpose: TransactionPurpose::PlayRequest {stream_key}} => {
+                if additional_args.len() == 0 {
+                    let kind = ClientSessionErrorKind::CreateStreamResponseHadNoStreamNumber;
+                    return Err(ClientSessionError {kind})
+                }
+
+                let stream_id = match additional_args[0] {
+                    Amf0Value::Number(number) => number as u32,
+                    _ => {
+                        let kind = ClientSessionErrorKind::CreateStreamResponseHadNoStreamNumber;
+                        return Err(ClientSessionError {kind})
+                    }
+                };
+
+                self.active_stream_id = Some(stream_id);
+                self.current_state = ClientState::PlayRequested {stream_key: stream_key.clone()};
+
+                let buffer_message = RtmpMessage::UserControl {
+                    event_type: UserControlEventType::SetBufferLength,
+                    buffer_length: Some(self.config.playback_buffer_length_ms),
+                    stream_id: Some(stream_id),
+                    timestamp: None,
+                };
+
+                let buffer_payload = buffer_message.into_message_payload(self.get_epoch(), 0)?;
+                let buffer_packet = self.serializer.serialize(&buffer_payload, false, false)?;
+
+                let transaction_id = self.get_next_transaction_id();
+                let play_message = RtmpMessage::Amf0Command {
+                    command_name: "play".to_string(),
+                    transaction_id: transaction_id as f64,
+                    command_object: Amf0Value::Null,
+                    additional_arguments: vec![Amf0Value::Utf8String(stream_key)]
+                };
+
+                let play_payload = play_message.into_message_payload(self.get_epoch(), stream_id)?;
+                let play_packet = self.serializer.serialize(&play_payload, false, false)?;
+
+                Ok(vec![
+                    ClientSessionResult::OutboundResponse(buffer_packet),
+                    ClientSessionResult::OutboundResponse(play_packet),
+                ])
+            }
         }
+    }
+
+    fn handle_on_status_command(&mut self, mut arguments: Vec<Amf0Value>) -> ClientResult {
+        if arguments.len() < 1 {
+            let kind = ClientSessionErrorKind::InvalidOnStatusArguments;
+            return Err(ClientSessionError {kind});
+        }
+
+        let mut properties = match arguments.remove(0) {
+            Amf0Value::Object(properties) => properties,
+            _ => {
+                let kind = ClientSessionErrorKind::InvalidOnStatusArguments;
+                return Err(ClientSessionError {kind});
+            }
+        };
+
+        let code = match properties.remove("code") {
+            Some(Amf0Value::Utf8String(code)) => code,
+
+            _ => {
+                let kind = ClientSessionErrorKind::InvalidOnStatusArguments;
+                return Err(ClientSessionError {kind});
+            }
+        };
+
+        match code.as_ref() {
+            "NetStream.Play.Start" => self.handle_play_start(),
+
+            x => {
+                let event = ClientSessionEvent::UnhandleableOnStatusCode {code: x.to_string()};
+                Ok(vec![ClientSessionResult::RaisedEvent(event)])
+            }
+        }
+    }
+
+    fn handle_play_start(&mut self) -> ClientResult {
+        let stream_key = match self.current_state {
+            ClientState::PlayRequested {ref stream_key} => stream_key.clone(),
+            _ => {
+                let kind = ClientSessionErrorKind::SessionInInvalidState {current_state: self.current_state.clone()};
+                return Err(ClientSessionError {kind});
+            },
+        };
+
+        self.current_state = ClientState::Playing {stream_key: stream_key.clone()};
+
+        let event = ClientSessionEvent::PlaybackRequestAccepted {stream_key};
+        Ok(vec![ClientSessionResult::RaisedEvent(event)])
     }
 
     fn get_epoch(&self) -> RtmpTimestamp {
