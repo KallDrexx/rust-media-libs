@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use rml_amf0::Amf0Value;
 use ::sessions::StreamMetadata;
+use ::time::RtmpTimestamp;
 
 /// Events that can be raised by the client session so that custom business logic can be written
 /// to react to it
@@ -26,11 +27,13 @@ pub enum ClientSessionEvent {
 
     /// The server has sent over video data for the stream
     VideoDataReceived {
+        timestamp: RtmpTimestamp,
         data: Bytes,
     },
 
     /// The server has sent over audio data for the stream
     AudioDataReceived {
+        timestamp: RtmpTimestamp,
         data: Bytes,
     },
 

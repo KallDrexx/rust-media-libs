@@ -269,14 +269,15 @@ fn active_play_session_raises_events_when_video_data_received() {
 
     let video_data = Bytes::from(vec![1,2,3,4,5]);
     let message = RtmpMessage::VideoData {data: video_data.clone()};
-    let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
     let packet = serializer.serialize(&payload, false, false).unwrap();
     let results = session.handle_input(&packet.bytes[..]).unwrap();
     let (_, mut events) = split_results(&mut deserializer, results);
 
     assert_eq!(events.len(), 1, "Unexpected number of events received");
     match events.remove(0) {
-        ClientSessionEvent::VideoDataReceived {data} => {
+        ClientSessionEvent::VideoDataReceived {data, timestamp} => {
+            assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexpected timestamp");
             assert_eq!(&data[..], &video_data[..], "Unexpected video data");
         },
 
@@ -295,14 +296,15 @@ fn active_play_session_raises_events_when_audio_data_received() {
 
     let video_data = Bytes::from(vec![1,2,3,4,5]);
     let message = RtmpMessage::AudioData {data: video_data.clone()};
-    let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
     let packet = serializer.serialize(&payload, false, false).unwrap();
     let results = session.handle_input(&packet.bytes[..]).unwrap();
     let (_, mut events) = split_results(&mut deserializer, results);
 
     assert_eq!(events.len(), 1, "Unexpected number of events received");
     match events.remove(0) {
-        ClientSessionEvent::AudioDataReceived {data} => {
+        ClientSessionEvent::AudioDataReceived {data, timestamp} => {
+            assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexpected timestamp");
             assert_eq!(&data[..], &video_data[..], "Unexpected video data");
         },
 

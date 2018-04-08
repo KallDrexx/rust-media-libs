@@ -93,10 +93,10 @@ impl ClientSession {
                             => self.handle_amf0_data(values, payload.message_stream_id)?,
 
                         RtmpMessage::AudioData {data}
-                            => self.handle_audio_data(payload.message_stream_id, data)?,
+                            => self.handle_audio_data(payload.message_stream_id, data, payload.timestamp)?,
 
                         RtmpMessage::VideoData {data}
-                            => self.handle_video_data(payload.message_stream_id, data)?,
+                            => self.handle_video_data(payload.message_stream_id, data, payload.timestamp)?,
 
                         _ => vec![ClientSessionResult::UnhandleableMessageReceived(payload)],
                     };
@@ -170,7 +170,7 @@ impl ClientSession {
         Ok(ClientSessionResult::OutboundResponse(packet))
     }
 
-    fn handle_video_data(&self, stream_id: u32, data: Bytes) -> ClientResult {
+    fn handle_video_data(&self, stream_id: u32, data: Bytes, timestamp: RtmpTimestamp) -> ClientResult {
         // Validate we are active on the stream this message came from
         match self.active_stream_id {
             None => return Ok(Vec::new()), // not active on any stream
@@ -178,11 +178,11 @@ impl ClientSession {
             Some(_) => (),
         }
 
-        let event = ClientSessionEvent::VideoDataReceived {data};
+        let event = ClientSessionEvent::VideoDataReceived {data, timestamp};
         Ok(vec![ClientSessionResult::RaisedEvent(event)])
     }
 
-    fn handle_audio_data(&self, stream_id: u32, data: Bytes) -> ClientResult {
+    fn handle_audio_data(&self, stream_id: u32, data: Bytes, timestamp: RtmpTimestamp) -> ClientResult {
         // Validate we are active on the stream this message came from
         match self.active_stream_id {
             None => return Ok(Vec::new()), // not active on any stream
@@ -190,7 +190,7 @@ impl ClientSession {
             Some(_) => (),
         }
 
-        let event = ClientSessionEvent::AudioDataReceived {data};
+        let event = ClientSessionEvent::AudioDataReceived {data, timestamp};
         Ok(vec![ClientSessionResult::RaisedEvent(event)])
     }
 
