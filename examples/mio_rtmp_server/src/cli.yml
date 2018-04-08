@@ -1,0 +1,26 @@
+name: mio-rtmp-server
+about: Example RTMP server utilizing RML RTMP library
+args:
+    - log-io:
+        short: l
+        long: log-io
+subcommands:
+    - pull:
+        about: Pulls an RTMP stream from a remote server
+        args:
+            - host:
+                short: h
+                required: true
+                takes_value: true
+            - app:
+                short: a
+                required: true
+                takes_value: true
+            - stream:
+                short: s
+                required: true
+                takes_value: true
+            - target:
+                short: t
+                required: true
+                takes_value: true

@@ -390,7 +390,7 @@ impl ClientSession {
 
                 let buffer_payload = buffer_message.into_message_payload(self.get_epoch(), 0)?;
                 let buffer_packet = self.serializer.serialize(&buffer_payload, false, false)?;
-                
+
                 let play_message = RtmpMessage::Amf0Command {
                     command_name: "play".to_string(),
                     transaction_id: 0.0,

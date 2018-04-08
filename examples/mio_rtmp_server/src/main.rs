@@ -1,17 +1,21 @@
 extern crate bytes;
+#[macro_use] extern crate clap;
 extern crate mio;
-extern crate slab;
 extern crate rml_rtmp;
+extern crate slab;
 
 mod connection;
 mod server;
 
 use std::collections::HashSet;
-use std::env;
+use std::net::SocketAddr;
+use std::str::FromStr;
 use std::time::SystemTime;
+use clap::App;
 use mio::*;
-use mio::net::{TcpListener};
+use mio::net::{TcpListener, TcpStream};
 use slab::Slab;
+
 use ::connection::{Connection, ReadResult, ConnectionError};
 use ::server::{Server, ServerResult};
 
@@ -20,21 +24,55 @@ const SERVER: Token = Token(std::usize::MAX - 1);
 type ClosedTokens = HashSet<usize>;
 enum EventResult { None, ReadResult(ReadResult), DisconnectConnection }
 
-fn main() {
-    let log_io = env::args().any(|x| x == "--log-io".to_string());
-    println!("Logging I/O: {}", log_io);
+#[derive(Debug)]
+struct PullOptions {
+    host: String,
+    app: String,
+    stream: String,
+    target: String,
+}
 
-    let addr = "0.0.0.0:1935".parse().unwrap();
-    let listener = TcpListener::bind(&addr).unwrap();
+#[derive(Debug)]
+struct AppOptions {
+    log_io: bool,
+    pull: Option<PullOptions>,
+}
+
+fn main() {
+    let app_options = get_app_options();
+
+    let address = "0.0.0.0:1935".parse().unwrap();
+    let listener = TcpListener::bind(&address).unwrap();
     let mut poll = Poll::new().unwrap();
 
     println!("Listening for connections");
     poll.register(&listener, SERVER, Ready::readable(), PollOpt::edge()).unwrap();
 
-    let mut events = Events::with_capacity(1024);
-    let mut connections = Slab::new();
     let mut server = Server::new();
-    let mut count = 1;
+    let mut connection_count = 1;
+    let mut connections = Slab::new();
+
+    if let Some(ref pull) = app_options.pull {
+        println!("Starting pull client for rtmp://{}/{}/{}", pull.host, pull.app, pull.stream);
+
+        let mut pull_host = pull.host.clone();
+        if !pull_host.contains(":") {
+            pull_host = pull_host + ":1935";
+        }
+
+        let addr = SocketAddr::from_str(&pull_host).unwrap();
+        let stream = TcpStream::connect(&addr).unwrap();
+        let mut connection = Connection::new(stream, connection_count, app_options.log_io, false);
+        let token = connections.insert(connection);
+        connection_count += 1;
+
+        println!("Pull client started with connection id {}", token);
+        connections[token].token = Some(Token(token));
+        connections[token].register(&mut poll).unwrap();
+        server.register_pull_client(token, pull.app.clone(), pull.stream.clone(), pull.target.clone());
+    }
+
+    let mut events = Events::with_capacity(1024);
     let mut outer_started_at = SystemTime::now();
     let mut inner_started_at;
     let mut total_ns = 0;
@@ -52,10 +90,10 @@ fn main() {
             match event.token() {
                 SERVER => {
                     let (socket, _) = listener.accept().unwrap();
-                    let mut connection = Connection::new(socket, count, log_io);
+                    let mut connection = Connection::new(socket, connection_count, app_options.log_io, true);
                     let token = connections.insert(connection);
 
-                    count += 1;
+                    connection_count += 1;
 
                     println!("New connection (id {})", token);
 
@@ -76,6 +114,16 @@ fn main() {
                                         &mut server,
                                         &mut connections,
                                         &mut poll);
+                                },
+
+                                ReadResult::HandshakeCompleted {buffer, byte_count} => {
+                                    // Server will understand that the first call to
+                                    // handle_read_bytes signifies that handshaking is completed
+                                    connections_to_close = handle_read_bytes(&buffer[..byte_count],
+                                         token,
+                                         &mut server,
+                                         &mut connections,
+                                         &mut poll);
                                 },
                             }
                         },
@@ -114,6 +162,32 @@ fn main() {
             outer_started_at = SystemTime::now();
         }
     }
+}
+
+fn get_app_options() -> AppOptions {
+    let yaml = load_yaml!("cli.yml");
+    let matches = App::from_yaml(yaml).get_matches();
+
+    let log_io = matches.is_present("log-io");
+    let pull_options = match matches.subcommand_matches("pull") {
+        None => None,
+        Some(pull_matches) => {
+            Some(PullOptions {
+                host: pull_matches.value_of("host").unwrap().to_string(),
+                app: pull_matches.value_of("app").unwrap().to_string(),
+                stream: pull_matches.value_of("stream").unwrap().to_string(),
+                target: pull_matches.value_of("target").unwrap().to_string(),
+            })
+        }
+    };
+
+    let app_options = AppOptions {
+        pull: pull_options,
+        log_io,
+    };
+
+    println!("Application options: {:?}", app_options);
+    app_options
 }
 
 fn process_event(event: &Ready, connections: &mut Slab<Connection>, token: usize, poll: &mut Poll) -> EventResult {

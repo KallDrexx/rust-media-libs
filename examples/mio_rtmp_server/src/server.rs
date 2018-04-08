@@ -3,11 +3,14 @@ use std::rc::Rc;
 use bytes::Bytes;
 use slab::Slab;
 use rml_rtmp::sessions::{ServerSession, ServerSessionConfig, ServerSessionResult, ServerSessionEvent};
+use rml_rtmp::sessions::{ClientSession, ClientSessionConfig, ClientSessionResult, ClientSessionEvent};
 use rml_rtmp::sessions::StreamMetadata;
 use rml_rtmp::chunk_io::Packet;
 use rml_rtmp::time::RtmpTimestamp;
 
-enum ClientAction {
+enum ReceivedDataType {Audio, Video}
+
+enum InboundClientAction {
     Waiting,
     Publishing(String), // Publishing to a stream key
     Watching {
@@ -16,23 +19,37 @@ enum ClientAction {
     },
 }
 
-enum ReceivedDataType {Audio, Video}
-
-struct Client {
+struct InboundClient {
     session: ServerSession,
-    current_action: ClientAction,
+    current_action: InboundClientAction,
     connection_id: usize,
     has_received_video_keyframe: bool,
 }
 
-impl Client {
+impl InboundClient {
     fn get_active_stream_id(&self) -> Option<u32> {
         match self.current_action {
-            ClientAction::Waiting => None,
-            ClientAction::Publishing(_) => None,
-            ClientAction::Watching {stream_key: _, stream_id} => Some(stream_id),
+            InboundClientAction::Waiting => None,
+            InboundClientAction::Publishing(_) => None,
+            InboundClientAction::Watching {stream_key: _, stream_id} => Some(stream_id),
         }
     }
+}
+
+enum PullState {
+    Handshaking,
+    Connecting,
+    Connected,
+    Pulling,
+}
+
+struct PullClient {
+    session: ClientSession,
+    connection_id: usize,
+    pull_app: String,
+    pull_stream: String,
+    pull_target_stream: String,
+    state: PullState,
 }
 
 struct MediaChannel {
@@ -53,9 +70,10 @@ pub enum ServerResult {
 }
 
 pub struct Server {
-    clients: Slab<Client>,
+    clients: Slab<InboundClient>,
     connection_to_client_map: HashMap<usize, usize>,
     channels: HashMap<String, MediaChannel>,
+    pull_client: Option<PullClient>,
 }
 
 impl Server {
@@ -64,63 +82,109 @@ impl Server {
             clients: Slab::with_capacity(1024),
             connection_to_client_map: HashMap::with_capacity(1024),
             channels: HashMap::new(),
+            pull_client: None,
         }
+    }
+
+    pub fn register_pull_client(&mut self,
+                                connection_id: usize,
+                                app: String,
+                                stream: String,
+                                target_stream: String) {
+        let config = ClientSessionConfig::new();
+
+        // Pre-create the target channel.
+        self.channels
+            .entry(target_stream.clone())
+            .or_insert(MediaChannel {
+                publishing_client_id: Some(connection_id),
+                watching_client_ids: HashSet::new(),
+                metadata: None,
+                video_sequence_header: None,
+                audio_sequence_header: None,
+            });
+
+        self.pull_client = Some(PullClient {
+            session: ClientSession::new(config),
+            pull_app: app,
+            pull_stream: stream,
+            pull_target_stream: target_stream,
+            state: PullState::Handshaking,
+            connection_id,
+        });
     }
 
     pub fn bytes_received(&mut self, connection_id: usize, bytes: &[u8]) -> Result<Vec<ServerResult>, String> {
         let mut server_results = Vec::new();
 
-        if !self.connection_to_client_map.contains_key(&connection_id) {
-            let config = ServerSessionConfig::new();
-            let (session, initial_session_results) = match ServerSession::new(config) {
+        if self.pull_client.as_ref().map_or(false, |c| c.connection_id == connection_id) {
+            // These bytes were received by the current pull client
+            let session_results = match self.pull_client.as_mut().unwrap().session.handle_input(bytes) {
                 Ok(results) => results,
                 Err(error) => return Err(error.to_string()),
             };
 
-            self.handle_session_results(connection_id, initial_session_results, &mut server_results);
-            let client = Client {
-                session,
-                connection_id,
-                current_action: ClientAction::Waiting,
-                has_received_video_keyframe: false,
-            };
+            self.handle_pull_session_results(session_results, &mut server_results);
 
-            let client_id = Some(self.clients.insert(client));
-            self.connection_to_client_map.insert(connection_id, client_id.unwrap());
+        } else {
+            // Since the pull client did not send these bytes, map it to an inbound client
+            if !self.connection_to_client_map.contains_key(&connection_id) {
+                let config = ServerSessionConfig::new();
+                let (session, initial_session_results) = match ServerSession::new(config) {
+                    Ok(results) => results,
+                    Err(error) => return Err(error.to_string()),
+                };
+
+                self.handle_server_session_results(connection_id, initial_session_results, &mut server_results);
+                let client = InboundClient {
+                    session,
+                    connection_id,
+                    current_action: InboundClientAction::Waiting,
+                    has_received_video_keyframe: false,
+                };
+
+                let client_id = Some(self.clients.insert(client));
+                self.connection_to_client_map.insert(connection_id, client_id.unwrap());
+            }
+
+            let client_results;
+            {
+                let client_id = self.connection_to_client_map.get(&connection_id).unwrap();
+                let client = self.clients.get_mut(*client_id).unwrap();
+                client_results = match client.session.handle_input(bytes) {
+                    Ok(results) => results,
+                    Err(error) => return Err(error.to_string()),
+                };
+            }
+
+            self.handle_server_session_results(connection_id, client_results, &mut server_results);
         }
 
-        let client_results: Vec<ServerSessionResult>;
-        {
-            let client_id = self.connection_to_client_map.get(&connection_id).unwrap();
-            let client = self.clients.get_mut(*client_id).unwrap();
-            client_results = match client.session.handle_input(bytes) {
-                Ok(results) => results,
-                Err(error) => return Err(error.to_string()),
-            };
-        }
-
-        self.handle_session_results(connection_id, client_results, &mut server_results);
         Ok(server_results)
     }
 
     pub fn notify_connection_closed(&mut self, connection_id: usize) {
-        match self.connection_to_client_map.remove(&connection_id) {
-            None => (),
-            Some(client_id) => {
-                let client = self.clients.remove(client_id);
-                match client.current_action {
-                    ClientAction::Publishing(stream_key) => self.publishing_ended(stream_key),
-                    ClientAction::Watching{stream_key, stream_id: _} => self.play_ended(client_id, stream_key),
-                    ClientAction::Waiting => (),
-                }
-            },
+        if self.pull_client.as_ref().map_or(false, |c| c.connection_id == connection_id) {
+            self.pull_client = None;
+        } else {
+            match self.connection_to_client_map.remove(&connection_id) {
+                None => (),
+                Some(client_id) => {
+                    let client = self.clients.remove(client_id);
+                    match client.current_action {
+                        InboundClientAction::Publishing(stream_key) => self.publishing_ended(stream_key),
+                        InboundClientAction::Watching{stream_key, stream_id: _} => self.play_ended(client_id, stream_key),
+                        InboundClientAction::Waiting => (),
+                    }
+                },
+            }
         }
     }
 
-    fn handle_session_results(&mut self,
-                              executed_connection_id: usize,
-                              session_results: Vec<ServerSessionResult>,
-                              server_results: &mut Vec<ServerResult>) {
+    fn handle_server_session_results(&mut self,
+                                     executed_connection_id: usize,
+                                     session_results: Vec<ServerSessionResult>,
+                                     server_results: &mut Vec<ServerResult>) {
         for result in session_results {
             match result {
                 ServerSessionResult::OutboundResponse(packet) => {
@@ -194,7 +258,7 @@ impl Server {
             },
 
             Ok(results) => {
-                self.handle_session_results(requested_connection_id, results, server_results);
+                self.handle_server_session_results(requested_connection_id, results, server_results);
             }
         }
     }
@@ -223,7 +287,7 @@ impl Server {
         {
             let client_id = self.connection_to_client_map.get(&requested_connection_id).unwrap();
             let client = self.clients.get_mut(*client_id).unwrap();
-            client.current_action = ClientAction::Publishing(stream_key.clone());
+            client.current_action = InboundClientAction::Publishing(stream_key.clone());
 
             let channel = self.channels
                 .entry(stream_key)
@@ -248,7 +312,7 @@ impl Server {
             },
 
             Ok(results) => {
-                self.handle_session_results(requested_connection_id, results, server_results);
+                self.handle_server_session_results(requested_connection_id, results, server_results);
             }
         }
     }
@@ -266,7 +330,7 @@ impl Server {
         {
             let client_id = self.connection_to_client_map.get(&requested_connection_id).unwrap();
             let client = self.clients.get_mut(*client_id).unwrap();
-            client.current_action = ClientAction::Watching {
+            client.current_action = InboundClientAction::Watching {
                 stream_key: stream_key.clone(),
                 stream_id,
             };
@@ -362,7 +426,7 @@ impl Server {
             },
 
             Ok(results) => {
-                self.handle_session_results(requested_connection_id, results, server_results);
+                self.handle_server_session_results(requested_connection_id, results, server_results);
             }
         }
     }
@@ -512,6 +576,123 @@ impl Server {
         };
 
         channel.watching_client_ids.remove(&client_id);
+    }
+
+    fn handle_pull_session_results(&mut self,
+                                   session_results: Vec<ClientSessionResult>,
+                                   server_results: &mut Vec<ServerResult>) {
+
+        let mut new_results = Vec::new();
+        let mut events = Vec::new();
+        if let Some(ref mut client) = self.pull_client {
+            for result in session_results {
+                match result {
+                    ClientSessionResult::OutboundResponse(packet) => {
+                        server_results.push(ServerResult::OutboundPacket {
+                            target_connection_id: client.connection_id,
+                            packet,
+                        });
+                    },
+
+                    ClientSessionResult::RaisedEvent(event) => {
+                        events.push(event);
+                    },
+
+                    x => println!("Client result received: {:?}", x),
+                }
+            }
+
+            match client.state {
+                PullState::Handshaking => {
+                    // Since this was called we know we are no longer handshaking, so we need to
+                    // initiate the connect to the RTMP app
+                    client.state = PullState::Connecting;
+                    let result = client.session.request_connection(client.pull_app.clone()).unwrap();
+                    new_results.push(result);
+                },
+
+                _ => (),
+            }
+        }
+
+        if !new_results.is_empty() {
+            self.handle_pull_session_results(new_results, server_results);
+        }
+
+        for event in events {
+            match event {
+                ClientSessionEvent::ConnectionRequestAccepted => {
+                    self.handle_pull_connection_accepted_event(server_results);
+                },
+
+                ClientSessionEvent::PlaybackRequestAccepted {..} => {
+                    self.handle_pull_playback_accepted_event(server_results);
+                },
+
+                ClientSessionEvent::VideoDataReceived {data, timestamp} => {
+                    self.handle_pull_audio_video_data_received(data, ReceivedDataType::Video, timestamp, server_results);
+                },
+
+                ClientSessionEvent::AudioDataReceived {data, timestamp} => {
+                    self.handle_pull_audio_video_data_received(data, ReceivedDataType::Audio, timestamp, server_results);
+                },
+
+                ClientSessionEvent::StreamMetadataReceived {metadata} => {
+                    self.handle_pull_metadata_received(metadata, server_results);
+                },
+
+                x => println!("Unhandled event raised: {:?}", x),
+            }
+        }
+    }
+
+    fn handle_pull_connection_accepted_event(&mut self, server_results: &mut Vec<ServerResult>) {
+        let mut new_results = Vec::new();
+        if let Some(ref mut client) = self.pull_client {
+            println!("Pull accepted for app '{}'", client.pull_app);
+            client.state = PullState::Connected;
+
+            let result = client.session.request_playback(client.pull_stream.clone()).unwrap();
+            let mut results = vec![result];
+            new_results.append(&mut results);
+        }
+
+        if !new_results.is_empty() {
+            self.handle_pull_session_results(new_results, server_results);
+        }
+    }
+
+    fn handle_pull_playback_accepted_event(&mut self, _server_results: &mut Vec<ServerResult>) {
+        if let Some(ref mut client) = self.pull_client {
+            println!("Playback accepted for stream '{}'", client.pull_stream);
+            client.state = PullState::Pulling;
+
+
+        }
+    }
+
+    fn handle_pull_audio_video_data_received(&mut self,
+                                       data: Bytes,
+                                       data_type: ReceivedDataType,
+                                       timestamp: RtmpTimestamp,
+                                       server_results: &mut Vec<ServerResult>) {
+        let stream_key = match self.pull_client {
+            Some(ref client) => client.pull_target_stream.clone(),
+            None => return,
+        };
+
+        self.handle_audio_video_data_received(stream_key, timestamp, data, data_type, server_results);
+    }
+
+    fn handle_pull_metadata_received(&mut self,
+                                metadata: StreamMetadata,
+                                server_results: &mut Vec<ServerResult>) {
+        let (app_name, stream_key) = match self.pull_client {
+            Some(ref client) => (client.pull_target_stream.clone(), client.pull_app.clone()),
+            None => return,
+        };
+
+        self.handle_metadata_received(app_name, stream_key, metadata, server_results);
     }
 }
 

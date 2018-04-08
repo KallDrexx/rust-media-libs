@@ -18,6 +18,11 @@ pub enum ReadResult {
         buffer: [u8; BUFFER_SIZE],
         byte_count: usize,
     },
+
+    HandshakeCompleted {
+        buffer: [u8; BUFFER_SIZE],
+        byte_count: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -56,7 +61,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(socket: TcpStream, count: usize, log_debug_logic: bool) -> Connection {
+    pub fn new(socket: TcpStream, count: usize, log_debug_logic: bool, is_inbound_connection: bool) -> Connection {
         let debug_log_files = match log_debug_logic {
             true => {
                 fs::create_dir_all("logs").unwrap();
@@ -77,18 +82,28 @@ impl Connection {
             false => None,
         };
 
-        Connection {
+        let handshake = match is_inbound_connection {
+            true => Handshake::new(PeerType::Server),
+            false => Handshake::new(PeerType::Client),
+        };
+
+        let mut connection = Connection {
             socket,
             debug_log_files,
             token: None,
             interest: Ready::readable() | Ready::writable(),
             send_queue: VecDeque::new(),
             has_been_registered: false,
-            handshake: Handshake::new(PeerType::Server),
             handshake_completed: false,
             dropped_packet_count: 0,
             last_drop_notification_at: SystemTime::now(),
-        }
+            handshake,
+        };
+
+        let handshake_bytes = connection.handshake.generate_outbound_p0_and_p1().unwrap();
+        connection.send_queue.push_back(SendablePacket::RawBytes(handshake_bytes));
+        connection.interest.insert(Ready::writable());
+        connection
     }
 
     pub fn enqueue_response(&mut self, poll: &mut Poll, bytes: Vec<u8>) -> io::Result<()> {
@@ -253,7 +268,8 @@ impl Connection {
                 }
 
                 self.handshake_completed = true;
-                Ok(ReadResult::BytesReceived {buffer, byte_count: buffer_size})
+
+                Ok(ReadResult::HandshakeCompleted {buffer, byte_count: buffer_size})
             }
         }
     }
