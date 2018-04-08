@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::HashMap;
+use bytes::Bytes;
 use rand;
 use rml_amf0::Amf0Value;
 use chunk_io::{ChunkDeserializer, ChunkSerializer, Packet};
@@ -202,6 +203,113 @@ fn successful_play_request_workflow() {
     }
 }
 
+#[test]
+fn active_play_session_raises_events_when_stream_metadata_changes() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
+
+    let mut properties = HashMap::new();
+    properties.insert("width".to_string(), Amf0Value::Number(1920_f64));
+    properties.insert("height".to_string(), Amf0Value::Number(1080_f64));
+    properties.insert("videocodecid".to_string(), Amf0Value::Utf8String("avc1".to_string()));
+    properties.insert("videodatarate".to_string(), Amf0Value::Number(1200_f64));
+    properties.insert("framerate".to_string(), Amf0Value::Number(30_f64));
+    properties.insert("audiocodecid".to_string(), Amf0Value::Utf8String("mp4a".to_string()));
+    properties.insert("audiodatarate".to_string(), Amf0Value::Number(96_f64));
+    properties.insert("audiosamplerate".to_string(), Amf0Value::Number(48000_f64));
+    properties.insert("audiosamplesize".to_string(), Amf0Value::Number(16_f64));
+    properties.insert("audiochannels".to_string(), Amf0Value::Number(2_f64));
+    properties.insert("stereo".to_string(), Amf0Value::Boolean(true));
+    properties.insert("encoder".to_string(), Amf0Value::Utf8String("Test Encoder".to_string()));
+
+    let message = RtmpMessage::Amf0Data {
+        values: vec![
+            Amf0Value::Utf8String("onMetaData".to_string()),
+            Amf0Value::Object(properties),
+        ]
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events received");
+    match events.remove(0) {
+        ClientSessionEvent::StreamMetadataReceived {metadata} => {
+            assert_eq!(metadata.video_width, Some(1920), "Unexpected video width");
+            assert_eq!(metadata.video_height, Some(1080), "Unexpected video height");
+            assert_eq!(metadata.video_codec, Some("avc1".to_string()), "Unexpected video codec");
+            assert_eq!(metadata.video_frame_rate, Some(30_f32), "Unexpected framerate");
+            assert_eq!(metadata.video_bitrate_kbps, Some(1200), "Unexpected video bitrate");
+            assert_eq!(metadata.audio_codec, Some("mp4a".to_string()), "Unexpected audio codec");
+            assert_eq!(metadata.audio_bitrate_kbps, Some(96), "Unexpected audio bitrate");
+            assert_eq!(metadata.audio_sample_rate, Some(48000), "Unexpected audio sample rate");
+            assert_eq!(metadata.audio_channels, Some(2), "Unexpected audio channels");
+            assert_eq!(metadata.audio_is_stereo, Some(true), "Unexpected audio is stereo value");
+            assert_eq!(metadata.encoder, Some("Test Encoder".to_string()), "Unexpected encoder value");
+        },
+
+        x => panic!("Expected stream metadata received event, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn active_play_session_raises_events_when_video_data_received() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
+
+    let video_data = Bytes::from(vec![1,2,3,4,5]);
+    let message = RtmpMessage::VideoData {data: video_data.clone()};
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events received");
+    match events.remove(0) {
+        ClientSessionEvent::VideoDataReceived {data} => {
+            assert_eq!(&data[..], &video_data[..], "Unexpected video data");
+        },
+
+        x => panic!("Expected video data received event, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn active_play_session_raises_events_when_audio_data_received() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
+
+    let video_data = Bytes::from(vec![1,2,3,4,5]);
+    let message = RtmpMessage::AudioData {data: video_data.clone()};
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events received");
+    match events.remove(0) {
+        ClientSessionEvent::AudioDataReceived {data} => {
+            assert_eq!(&data[..], &video_data[..], "Unexpected video data");
+        },
+
+        x => panic!("Expected video data received event, instead received: {:?}", x),
+    }
+}
+
 fn split_results(deserializer: &mut ChunkDeserializer, mut results: Vec<ClientSessionResult>)
     -> (Vec<(MessagePayload, RtmpMessage)>, Vec<ClientSessionEvent>) {
     let mut responses = Vec::new();
@@ -331,4 +439,70 @@ fn perform_successful_connect(app_name: String,
         ClientSessionEvent::ConnectionRequestAccepted => (),
         x => panic!("Expected connection accepted event, instead received: {:?}", x),
     }
+}
+
+fn perform_successful_play_request(config: ClientSessionConfig,
+                                   session: &mut ClientSession,
+                                   serializer: &mut ChunkSerializer,
+                                   deserializer: &mut ChunkDeserializer) -> u32 {
+    let stream_key = "abcd".to_string();
+    let result = session.request_playback(stream_key.clone()).unwrap();
+    let (mut responses, _) = split_results(deserializer, vec![result]);
+
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    let transaction_id = match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, 0, "Unexpected stream id");
+            assert_eq!(command_name, "createStream", "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 0, "Uenxpected number of additional arguments");
+            transaction_id
+        },
+
+        x => panic!("Unexpected response seen: {:?}", x),
+    };
+
+    let (created_stream_id, create_stream_response) = get_create_stream_success_response(transaction_id, serializer);
+    let results = session.handle_input(&create_stream_response.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(deserializer, results);
+
+    assert_eq!(responses.len(), 2, "Expected one response returned");
+    match responses.remove(0) {
+        (payload, RtmpMessage::UserControl {event_type, stream_id, buffer_length, timestamp}) => {
+            assert_eq!(payload.message_stream_id, 0, "Unexpected message stream id");
+            assert_eq!(stream_id, Some(created_stream_id), "Unexpected user control stream id");
+            assert_eq!(event_type, UserControlEventType::SetBufferLength, "Unexpected user control event type");
+            assert_eq!(buffer_length, Some(config.playback_buffer_length_ms), "Unexpected playback buffer lenght");
+            assert_eq!(timestamp, None, "Unexpected timestamp");
+        },
+
+        x => panic!("Expected set buffer length message, instead received: {:?}", x),
+    }
+
+    match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id: _, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, created_stream_id, "Unexpected message stream id");
+            assert_eq!(command_name, "play".to_string(), "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+            assert_eq!(additional_arguments[0], Amf0Value::Utf8String(stream_key.clone()), "Unexpected stream key");
+        },
+
+        x => panic!("Expected play message, instead received: {:?}", x),
+    };
+
+    let play_response = get_play_success_response(serializer);
+    let results = session.handle_input(&play_response.bytes[..]).unwrap();
+    let (_, mut events) = split_results(deserializer, results);
+
+    assert_eq!(events.len(), 1, "Expected one event returned");
+    match events.remove(0) {
+        ClientSessionEvent::PlaybackRequestAccepted {stream_key: event_stream_key} => {
+            assert_eq!(event_stream_key, stream_key, "Unexpected stream key in play request accepted event");
+        },
+
+        x => panic!("Expected playback accepted event, instead received: {:?}", x),
+    }
+
+    created_stream_id
 }

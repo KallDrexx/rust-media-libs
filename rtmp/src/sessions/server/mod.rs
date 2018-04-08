@@ -717,7 +717,7 @@ impl ServerSession {
         let object = data.remove(1);
         let properties_option = object.get_object_properties();
         match properties_option {
-            Some(properties) => apply_metadata_values(&mut metadata, properties),
+            Some(properties) => metadata.apply_metadata_values(properties),
             _ => (),
         }
 
@@ -1046,68 +1046,5 @@ fn create_status_object(level: &str, code: &str, description: &str) -> HashMap<S
     properties.insert("code".to_string(), Amf0Value::Utf8String(code.to_string()));
     properties.insert("description".to_string(), Amf0Value::Utf8String(description.to_string()));
     properties
-}
-
-fn apply_metadata_values(metadata: &mut StreamMetadata, mut properties: HashMap<String, Amf0Value>) {
-    for (key, value) in properties.drain() {
-        match key.as_ref() {
-            "width" => match value.get_number() { 
-                Some(x) => metadata.video_width = Some(x as u32),
-                None => (),
-            },
-
-            "height" => match value.get_number() {
-                Some(x) => metadata.video_height = Some(x as u32),
-                None => (),
-            },
-
-            "videocodecid" => match value.get_string() {
-                Some(x) => metadata.video_codec = Some(x),
-                None => (),
-            },
-
-            "videodatarate" => match value.get_number() {
-                Some(x) => metadata.video_bitrate_kbps = Some(x as u32),
-                None => (),
-            },
-
-            "framerate" => match value.get_number() {
-                Some(x) => metadata.video_frame_rate = Some(x as f32),
-                None => (),
-            },
-
-            "audiocodecid" => match value.get_string() {
-                Some(x) => metadata.audio_codec = Some(x),
-                None => (),
-            },
-
-            "audiodatarate" => match value.get_number() {
-                Some(x) => metadata.audio_bitrate_kbps = Some(x as u32),
-                None => (),
-            },
-
-            "audiosamplerate" => match value.get_number() {
-                Some(x) => metadata.audio_sample_rate = Some(x as u32),
-                None => (),
-            },
-
-            "audiochannels" => match value.get_number() {
-                Some(x) => metadata.audio_channels = Some(x as u32),
-                None => (),
-            },
-
-            "stereo" => match value.get_boolean() {
-                Some(x) => metadata.audio_is_stereo = Some(x),
-                None => (),
-            },
-
-            "encoder" => match value.get_string() {
-                Some(x) => metadata.encoder = Some(x),
-                None => (),
-            },
-
-            _ => (),
-        }
-    }
 }
 

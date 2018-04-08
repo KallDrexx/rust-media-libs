@@ -22,20 +22,23 @@ pub use self::server::ServerSessionError;
 pub use self::server::ServerSessionErrorKind;
 pub use self::server::ServerSessionResult;
 
+use std::collections::HashMap;
+use rml_amf0::Amf0Value;
+
 /// Contains the metadata information a stream may advertise on publishing
 #[derive(PartialEq, Debug, Clone)]
 pub struct StreamMetadata {
-    video_width: Option<u32>,
-    video_height: Option<u32>,
-    video_codec: Option<String>,
-    video_frame_rate: Option<f32>,
-    video_bitrate_kbps: Option<u32>,
-    audio_codec: Option<String>,
-    audio_bitrate_kbps: Option<u32>,
-    audio_sample_rate: Option<u32>,
-    audio_channels: Option<u32>,
-    audio_is_stereo: Option<bool>,
-    encoder: Option<String>
+    pub video_width: Option<u32>,
+    pub video_height: Option<u32>,
+    pub video_codec: Option<String>,
+    pub video_frame_rate: Option<f32>,
+    pub video_bitrate_kbps: Option<u32>,
+    pub audio_codec: Option<String>,
+    pub audio_bitrate_kbps: Option<u32>,
+    pub audio_sample_rate: Option<u32>,
+    pub audio_channels: Option<u32>,
+    pub audio_is_stereo: Option<bool>,
+    pub encoder: Option<String>
 }
 
 impl StreamMetadata {
@@ -52,6 +55,69 @@ impl StreamMetadata {
             audio_channels: None,
             audio_is_stereo: None,
             encoder: None
+        }
+    }
+
+    fn apply_metadata_values(&mut self, mut properties: HashMap<String, Amf0Value>) {
+        for (key, value) in properties.drain() {
+            match key.as_ref() {
+                "width" => match value.get_number() {
+                    Some(x) => self.video_width = Some(x as u32),
+                    None => (),
+                },
+
+                "height" => match value.get_number() {
+                    Some(x) => self.video_height = Some(x as u32),
+                    None => (),
+                },
+
+                "videocodecid" => match value.get_string() {
+                    Some(x) => self.video_codec = Some(x),
+                    None => (),
+                },
+
+                "videodatarate" => match value.get_number() {
+                    Some(x) => self.video_bitrate_kbps = Some(x as u32),
+                    None => (),
+                },
+
+                "framerate" => match value.get_number() {
+                    Some(x) => self.video_frame_rate = Some(x as f32),
+                    None => (),
+                },
+
+                "audiocodecid" => match value.get_string() {
+                    Some(x) => self.audio_codec = Some(x),
+                    None => (),
+                },
+
+                "audiodatarate" => match value.get_number() {
+                    Some(x) => self.audio_bitrate_kbps = Some(x as u32),
+                    None => (),
+                },
+
+                "audiosamplerate" => match value.get_number() {
+                    Some(x) => self.audio_sample_rate = Some(x as u32),
+                    None => (),
+                },
+
+                "audiochannels" => match value.get_number() {
+                    Some(x) => self.audio_channels = Some(x as u32),
+                    None => (),
+                },
+
+                "stereo" => match value.get_boolean() {
+                    Some(x) => self.audio_is_stereo = Some(x),
+                    None => (),
+                },
+
+                "encoder" => match value.get_string() {
+                    Some(x) => self.encoder = Some(x),
+                    None => (),
+                },
+
+                _ => (),
+            }
         }
     }
 }

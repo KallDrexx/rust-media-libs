@@ -17,10 +17,12 @@ pub use self::state::ClientState;
 use self::outstanding_transaction::{OutstandingTransaction, TransactionPurpose};
 use std::collections::HashMap;
 use std::time::SystemTime;
-use chunk_io::{ChunkSerializer, ChunkDeserializer};
-use messages::{RtmpMessage, UserControlEventType};
+use bytes::Bytes;
 use rml_amf0::Amf0Value;
 use time::RtmpTimestamp;
+use sessions::StreamMetadata;
+use chunk_io::{ChunkSerializer, ChunkDeserializer};
+use messages::{RtmpMessage, UserControlEventType};
 
 type ClientResult = Result<Vec<ClientSessionResult>, ClientSessionError>;
 
@@ -86,6 +88,15 @@ impl ClientSession {
                     let mut message_results = match message {
                         RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}
                             => self.handle_amf0_command(command_name, transaction_id, command_object, additional_arguments)?,
+
+                        RtmpMessage::Amf0Data {values}
+                            => self.handle_amf0_data(values, payload.message_stream_id)?,
+
+                        RtmpMessage::AudioData {data}
+                            => self.handle_audio_data(payload.message_stream_id, data)?,
+
+                        RtmpMessage::VideoData {data}
+                            => self.handle_video_data(payload.message_stream_id, data)?,
 
                         _ => vec![ClientSessionResult::UnhandleableMessageReceived(payload)],
                     };
@@ -157,6 +168,52 @@ impl ClientSession {
         let packet = self.serializer.serialize(&payload, false, false)?;
 
         Ok(ClientSessionResult::OutboundResponse(packet))
+    }
+
+    fn handle_video_data(&self, stream_id: u32, data: Bytes) -> ClientResult {
+        // Validate we are active on the stream this message came from
+        match self.active_stream_id {
+            None => return Ok(Vec::new()), // not active on any stream
+            Some(active_stream_id) if active_stream_id != stream_id => return Ok(Vec::new()), // not active on this stream
+            Some(_) => (),
+        }
+
+        let event = ClientSessionEvent::VideoDataReceived {data};
+        Ok(vec![ClientSessionResult::RaisedEvent(event)])
+    }
+
+    fn handle_audio_data(&self, stream_id: u32, data: Bytes) -> ClientResult {
+        // Validate we are active on the stream this message came from
+        match self.active_stream_id {
+            None => return Ok(Vec::new()), // not active on any stream
+            Some(active_stream_id) if active_stream_id != stream_id => return Ok(Vec::new()), // not active on this stream
+            Some(_) => (),
+        }
+
+        let event = ClientSessionEvent::AudioDataReceived {data};
+        Ok(vec![ClientSessionResult::RaisedEvent(event)])
+    }
+
+    fn handle_amf0_data(&mut self, mut data: Vec<Amf0Value>, stream_id: u32) -> ClientResult {
+        if data.len() == 0 {
+            // No data so just do nothing
+            return Ok(Vec::new());
+        }
+
+        // Validate we are active on the stream this message came from
+        match self.active_stream_id {
+            None => return Ok(Vec::new()), // not active on any stream
+            Some(active_stream_id) if active_stream_id != stream_id => return Ok(Vec::new()), // not active on this stream
+            Some(_) => (),
+        }
+
+        let first_element = data.remove(0);
+        match first_element {
+            Amf0Value::Utf8String(ref value) if value == "onMetaData"
+                => self.handle_amf0_data_on_meta_data(data),
+
+            _ => Ok(Vec::new()),
+        }
     }
 
     fn handle_amf0_command(&mut self,
@@ -349,6 +406,24 @@ impl ClientSession {
         self.current_state = ClientState::Playing {stream_key: stream_key.clone()};
 
         let event = ClientSessionEvent::PlaybackRequestAccepted {stream_key};
+        Ok(vec![ClientSessionResult::RaisedEvent(event)])
+    }
+
+    fn handle_amf0_data_on_meta_data(&mut self, mut data: Vec<Amf0Value>) -> ClientResult {
+        if data.len() < 1 {
+            // No data so ignore it
+            return Ok(Vec::new());
+        }
+
+        let properties = match data.remove(0) {
+            Amf0Value::Object(properties) => properties,
+            _ => return Ok(Vec::new()), // malformed so ignore it
+        };
+
+        let mut metadata = StreamMetadata::new();
+        metadata.apply_metadata_values(properties);
+
+        let event = ClientSessionEvent::StreamMetadataReceived {metadata};
         Ok(vec![ClientSessionResult::RaisedEvent(event)])
     }
 

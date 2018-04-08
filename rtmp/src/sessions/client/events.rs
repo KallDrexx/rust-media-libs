@@ -1,4 +1,6 @@
+use bytes::Bytes;
 use rml_amf0::Amf0Value;
+use ::sessions::StreamMetadata;
 
 /// Events that can be raised by the client session so that custom business logic can be written
 /// to react to it
@@ -15,6 +17,21 @@ pub enum ClientSessionEvent {
     /// The server has accepted our request to play video back from a stream key
     PlaybackRequestAccepted {
         stream_key: String,
+    },
+
+    /// The server has sent over new metadata for the stream
+    StreamMetadataReceived {
+        metadata: StreamMetadata,
+    },
+
+    /// The server has sent over video data for the stream
+    VideoDataReceived {
+        data: Bytes,
+    },
+
+    /// The server has sent over audio data for the stream
+    AudioDataReceived {
+        data: Bytes,
     },
 
     /// The server sent an Amf0 command that was not able to be handled
