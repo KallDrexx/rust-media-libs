@@ -171,6 +171,17 @@ impl ClientSession {
     }
 
     fn handle_video_data(&self, stream_id: u32, data: Bytes, timestamp: RtmpTimestamp) -> ClientResult {
+        // PlayRequested state is allowed because some servers send video data prior to the
+        // `NetStream.Play.Start` command.
+        match self.current_state {
+            ClientState::PlayRequested {..} => (),
+            ClientState::Playing {..} => (),
+            _ => {
+                let kind = ClientSessionErrorKind::SessionInInvalidState {current_state: self.current_state.clone()};
+                return Err(ClientSessionError {kind});
+            }
+        }
+
         // Validate we are active on the stream this message came from
         match self.active_stream_id {
             None => return Ok(Vec::new()), // not active on any stream
@@ -183,6 +194,17 @@ impl ClientSession {
     }
 
     fn handle_audio_data(&self, stream_id: u32, data: Bytes, timestamp: RtmpTimestamp) -> ClientResult {
+        // PlayRequested state is allowed because some servers send audio data prior to the
+        // `NetStream.Play.Start` command.
+        match self.current_state {
+            ClientState::PlayRequested {..} => (),
+            ClientState::Playing {..} => (),
+            _ => {
+                let kind = ClientSessionErrorKind::SessionInInvalidState {current_state: self.current_state.clone()};
+                return Err(ClientSessionError {kind});
+            }
+        }
+
         // Validate we are active on the stream this message came from
         match self.active_stream_id {
             None => return Ok(Vec::new()), // not active on any stream

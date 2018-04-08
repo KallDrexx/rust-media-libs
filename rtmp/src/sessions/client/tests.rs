@@ -294,8 +294,8 @@ fn active_play_session_raises_events_when_audio_data_received() {
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
 
-    let video_data = Bytes::from(vec![1,2,3,4,5]);
-    let message = RtmpMessage::AudioData {data: video_data.clone()};
+    let audio_data = Bytes::from(vec![1,2,3,4,5]);
+    let message = RtmpMessage::AudioData {data: audio_data.clone()};
     let payload = message.into_message_payload(RtmpTimestamp::new(1234), stream_id).unwrap();
     let packet = serializer.serialize(&payload, false, false).unwrap();
     let results = session.handle_input(&packet.bytes[..]).unwrap();
@@ -304,6 +304,152 @@ fn active_play_session_raises_events_when_audio_data_received() {
     assert_eq!(events.len(), 1, "Unexpected number of events received");
     match events.remove(0) {
         ClientSessionEvent::AudioDataReceived {data, timestamp} => {
+            assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexpected timestamp");
+            assert_eq!(&data[..], &audio_data[..], "Unexpected audio data");
+        },
+
+        x => panic!("Expected video data received event, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn can_receive_audio_data_prior_to_play_request_being_accepted() {
+    let app_name = "test".to_string();
+    let stream_key = "test-key".to_string();
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect(app_name.clone(), &mut session, &mut serializer, &mut deserializer);
+
+    let result = session.request_playback(stream_key.clone()).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, vec![result]);
+
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    let transaction_id = match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, 0, "Unexpected stream id");
+            assert_eq!(command_name, "createStream", "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 0, "Uenxpected number of additional arguments");
+            transaction_id
+        },
+
+        x => panic!("Unexpected response seen: {:?}", x),
+    };
+
+    let (created_stream_id, create_stream_response) = get_create_stream_success_response(transaction_id, &mut serializer);
+    let results = session.handle_input(&create_stream_response.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+
+    assert_eq!(responses.len(), 2, "Expected one response returned");
+    match responses.remove(0) {
+        (payload, RtmpMessage::UserControl {event_type, stream_id, buffer_length, timestamp}) => {
+            assert_eq!(payload.message_stream_id, 0, "Unexpected message stream id");
+            assert_eq!(stream_id, Some(created_stream_id), "Unexpected user control stream id");
+            assert_eq!(event_type, UserControlEventType::SetBufferLength, "Unexpected user control event type");
+            assert_eq!(buffer_length, Some(config.playback_buffer_length_ms), "Unexpected playback buffer lenght");
+            assert_eq!(timestamp, None, "Unexpected timestamp");
+        },
+
+        x => panic!("Expected set buffer length message, instead received: {:?}", x),
+    }
+
+    match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id: _, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, created_stream_id, "Unexpected message stream id");
+            assert_eq!(command_name, "play".to_string(), "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+            assert_eq!(additional_arguments[0], Amf0Value::Utf8String(stream_key.clone()), "Unexpected stream key");
+        },
+
+        x => panic!("Expected play message, instead received: {:?}", x),
+    };
+
+    let audio_data = Bytes::from(vec![1,2,3,4,5]);
+    let message = RtmpMessage::AudioData {data: audio_data.clone()};
+    let payload = message.into_message_payload(RtmpTimestamp::new(1234), created_stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events received");
+    match events.remove(0) {
+        ClientSessionEvent::AudioDataReceived {data, timestamp} => {
+            assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexpected timestamp");
+            assert_eq!(&data[..], &audio_data[..], "Unexpected audio data");
+        },
+
+        x => panic!("Expected audio data received event, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn can_receive_video_data_prior_to_play_request_being_accepted() {
+    let app_name = "test".to_string();
+    let stream_key = "test-key".to_string();
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect(app_name.clone(), &mut session, &mut serializer, &mut deserializer);
+
+    let result = session.request_playback(stream_key.clone()).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, vec![result]);
+
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    let transaction_id = match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, 0, "Unexpected stream id");
+            assert_eq!(command_name, "createStream", "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 0, "Uenxpected number of additional arguments");
+            transaction_id
+        },
+
+        x => panic!("Unexpected response seen: {:?}", x),
+    };
+
+    let (created_stream_id, create_stream_response) = get_create_stream_success_response(transaction_id, &mut serializer);
+    let results = session.handle_input(&create_stream_response.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+
+    assert_eq!(responses.len(), 2, "Expected one response returned");
+    match responses.remove(0) {
+        (payload, RtmpMessage::UserControl {event_type, stream_id, buffer_length, timestamp}) => {
+            assert_eq!(payload.message_stream_id, 0, "Unexpected message stream id");
+            assert_eq!(stream_id, Some(created_stream_id), "Unexpected user control stream id");
+            assert_eq!(event_type, UserControlEventType::SetBufferLength, "Unexpected user control event type");
+            assert_eq!(buffer_length, Some(config.playback_buffer_length_ms), "Unexpected playback buffer lenght");
+            assert_eq!(timestamp, None, "Unexpected timestamp");
+        },
+
+        x => panic!("Expected set buffer length message, instead received: {:?}", x),
+    }
+
+    match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id: _, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, created_stream_id, "Unexpected message stream id");
+            assert_eq!(command_name, "play".to_string(), "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+            assert_eq!(additional_arguments[0], Amf0Value::Utf8String(stream_key.clone()), "Unexpected stream key");
+        },
+
+        x => panic!("Expected play message, instead received: {:?}", x),
+    };
+
+    let video_data = Bytes::from(vec![1,2,3,4,5]);
+    let message = RtmpMessage::VideoData {data: video_data.clone()};
+    let payload = message.into_message_payload(RtmpTimestamp::new(1234), created_stream_id).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events received");
+    match events.remove(0) {
+        ClientSessionEvent::VideoDataReceived {data, timestamp} => {
             assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexpected timestamp");
             assert_eq!(&data[..], &video_data[..], "Unexpected video data");
         },
