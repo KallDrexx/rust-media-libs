@@ -178,9 +178,10 @@ fn successful_play_request_workflow() {
     }
 
     match responses.remove(0) {
-        (payload, RtmpMessage::Amf0Command {command_name, transaction_id: _, command_object, additional_arguments}) => {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
             assert_eq!(payload.message_stream_id, created_stream_id, "Unexpected message stream id");
             assert_eq!(command_name, "play".to_string(), "Unexpected command name");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
             assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
             assert_eq!(additional_arguments[0], Amf0Value::Utf8String(stream_key.clone()), "Unexpected stream key");
@@ -356,9 +357,10 @@ fn can_receive_audio_data_prior_to_play_request_being_accepted() {
     }
 
     match responses.remove(0) {
-        (payload, RtmpMessage::Amf0Command {command_name, transaction_id: _, command_object, additional_arguments}) => {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
             assert_eq!(payload.message_stream_id, created_stream_id, "Unexpected message stream id");
             assert_eq!(command_name, "play".to_string(), "Unexpected command name");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
             assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
             assert_eq!(additional_arguments[0], Amf0Value::Utf8String(stream_key.clone()), "Unexpected stream key");
@@ -429,9 +431,10 @@ fn can_receive_video_data_prior_to_play_request_being_accepted() {
     }
 
     match responses.remove(0) {
-        (payload, RtmpMessage::Amf0Command {command_name, transaction_id: _, command_object, additional_arguments}) => {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
             assert_eq!(payload.message_stream_id, created_stream_id, "Unexpected message stream id");
             assert_eq!(command_name, "play".to_string(), "Unexpected command name");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
             assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
             assert_eq!(additional_arguments[0], Amf0Value::Utf8String(stream_key.clone()), "Unexpected stream key");
@@ -655,9 +658,10 @@ fn perform_successful_play_request(config: ClientSessionConfig,
     }
 
     match responses.remove(0) {
-        (payload, RtmpMessage::Amf0Command {command_name, transaction_id: _, command_object, additional_arguments}) => {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
             assert_eq!(payload.message_stream_id, created_stream_id, "Unexpected message stream id");
             assert_eq!(command_name, "play".to_string(), "Unexpected command name");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
             assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
             assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
             assert_eq!(additional_arguments[0], Amf0Value::Utf8String(stream_key.clone()), "Unexpected stream key");
