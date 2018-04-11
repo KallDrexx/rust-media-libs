@@ -1002,7 +1002,7 @@ fn can_send_ping_request() {
 }
 
 #[test]
-fn sends_ack_after_receiving_window_ack_bytes_received() {
+fn sends_ack_after_receiving_window_ack_bytes() {
     let config = get_basic_config();
     let test_app_name = "some_app".to_string();
 

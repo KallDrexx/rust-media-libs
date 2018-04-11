@@ -56,5 +56,15 @@ pub enum ClientSessionEvent {
     /// how to handle.
     UnhandleableOnStatusCode {
         code: String,
-    }
+    },
+
+    /// The client has sent an acknowledgement that they have received the specified number of bytes
+    AcknowledgementReceived {
+        bytes_received: u32,
+    },
+
+    /// The client has responded to a ping request
+    PingResponseReceived {
+        timestamp: RtmpTimestamp,
+    },
 }

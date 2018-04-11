@@ -5,6 +5,7 @@ use rand;
 use rml_amf0::Amf0Value;
 use chunk_io::{ChunkDeserializer, ChunkSerializer, Packet};
 use messages::{MessagePayload, RtmpMessage,UserControlEventType};
+use bytes::BytesMut;
 
 #[test]
 fn can_send_connect_request() {
@@ -485,6 +486,165 @@ fn can_stop_playback() {
         },
 
         x => panic!("Expected Amf0 command, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn automatically_responds_to_ping_requests() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::UserControl {
+        event_type: UserControlEventType::PingRequest,
+        timestamp: Some(RtmpTimestamp::new(5230)),
+        stream_id: None,
+        buffer_length: None,
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(6000), 0).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+
+    assert_eq!(responses.len(), 1, "Expected one response for handling ping request");
+    match responses.remove(0) {
+        (_, RtmpMessage::UserControl {event_type, timestamp: Some(timestamp), stream_id: None, buffer_length: None}) => {
+            assert_eq!(event_type, UserControlEventType::PingResponse, "Unexpected event type");
+            assert_eq!(timestamp, RtmpTimestamp::new(5230), "Unexpected timestamp");
+        },
+
+        x => panic!("Expected PingResponse, found {:?}", x),
+    }
+}
+
+#[test]
+fn event_raised_when_ping_response_received() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::UserControl {
+        event_type: UserControlEventType::PingResponse,
+        timestamp: Some(RtmpTimestamp::new(5230)),
+        stream_id: None,
+        buffer_length: None,
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(6000), 0).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "One event expected");
+    match events.remove(0) {
+        ClientSessionEvent::PingResponseReceived {timestamp} => {
+            assert_eq!(timestamp, RtmpTimestamp::new(5230), "Unexpected timestamp received");
+        },
+
+        x => panic!("Expected PingResponse event, instead received {:?}", x),
+    }
+}
+
+#[test]
+fn can_send_ping_request() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+
+    let (packet, sent_timestamp) = session.send_ping_request().unwrap();
+    let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
+    let message = payload.to_rtmp_message().unwrap();
+
+    match message {
+        RtmpMessage::UserControl { event_type, timestamp: Some(timestamp), buffer_length: None, stream_id: None } => {
+            assert_eq!(event_type, UserControlEventType::PingRequest, "Unexpected user control event type");
+            assert_eq!(timestamp, sent_timestamp, "Unexpected timestamp in outbound message");
+        },
+
+        x => panic!("Expected PingRequest being sent, instead found {:?}", x),
+    }
+}
+
+#[test]
+fn sends_ack_after_receiving_window_ack_bytes() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+    let _ = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
+
+    let window_ack_message = RtmpMessage::WindowAcknowledgement {size: 100};
+    let window_ack_payload = window_ack_message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let window_ack_packet = serializer.serialize(&window_ack_payload, false, false).unwrap();
+    let results = session.handle_input(&window_ack_packet.bytes[..]).unwrap();
+    consume_results(&mut deserializer, results);
+
+    let mut bytes = BytesMut::new();
+    bytes.extend_from_slice(&[1; 101]);
+    let video_message = RtmpMessage::VideoData {data: bytes.freeze()};
+    let video_payload = video_message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let video_packet = serializer.serialize(&video_payload, false, false).unwrap();
+    let results = session.handle_input(&video_packet.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    match responses.remove(0) {
+        (_, RtmpMessage::Acknowledgement {sequence_number: _}) => (), // No good way to predict sequence number
+        x => panic!("Expected Acknowledgement, instead received: {:?}", x),
+    }
+
+    let mut bytes = BytesMut::new();
+    bytes.extend_from_slice(&[1; 1]);
+    let video_message = RtmpMessage::VideoData {data: bytes.freeze()};
+    let video_payload = video_message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let video_packet = serializer.serialize(&video_payload, false, false).unwrap();
+    let results = session.handle_input(&video_packet.bytes[..]).unwrap();
+    let (responses, _) = split_results(&mut deserializer, results);
+    assert_eq!(responses.len(), 0, "Expected no responses");
+
+    let mut bytes = BytesMut::new();
+    bytes.extend_from_slice(&[1; 100]);
+    let video_message = RtmpMessage::VideoData {data: bytes.freeze()};
+    let video_payload = video_message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let video_packet = serializer.serialize(&video_payload, false, false).unwrap();
+    let results = session.handle_input(&video_packet.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    match responses.remove(0) {
+        (_, RtmpMessage::Acknowledgement {sequence_number: _}) => (), // No good way to predict sequence number
+        x => panic!("Expected Acknowledgement, instead received: {:?}", x),
+    }
+}
+
+#[test]
+fn event_raised_when_server_sends_an_acknowledgement() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+
+    let message = RtmpMessage::Acknowledgement {sequence_number: 1234};
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let packet = serializer.serialize(&payload, false, false).unwrap();
+    let results = session.handle_input(&packet.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events");
+    match events.remove(0) {
+        ClientSessionEvent::AcknowledgementReceived {bytes_received} => {
+            assert_eq!(bytes_received, 1234, "Incorrect number of bytes received in event");
+        },
+
+        x => panic!("Expected acknowledgement received event, instead got: {:?}", x),
     }
 }
 

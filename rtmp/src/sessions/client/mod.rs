@@ -22,7 +22,7 @@ use bytes::Bytes;
 use rml_amf0::Amf0Value;
 use time::RtmpTimestamp;
 use sessions::StreamMetadata;
-use chunk_io::{ChunkSerializer, ChunkDeserializer};
+use chunk_io::{ChunkSerializer, ChunkDeserializer, Packet};
 use messages::{RtmpMessage, UserControlEventType};
 
 type ClientResult = Result<Vec<ClientSessionResult>, ClientSessionError>;
@@ -58,6 +58,9 @@ pub struct ClientSession {
     current_state: ClientState,
     connected_app_name: Option<String>,
     active_stream_id: Option<u32>,
+    peer_window_ack_size: Option<u32>,
+    bytes_received: u64,
+    bytes_received_since_last_ack: u32,
 }
 
 impl ClientSession {
@@ -71,6 +74,9 @@ impl ClientSession {
             current_state: ClientState::Disconnected,
             active_stream_id: None,
             connected_app_name: None,
+            peer_window_ack_size: None,
+            bytes_received: 0,
+            bytes_received_since_last_ack: 0,
             config,
         };
 
@@ -79,6 +85,19 @@ impl ClientSession {
 
     pub fn handle_input(&mut self, bytes: &[u8]) -> ClientResult {
         let mut results = Vec::new();
+        self.bytes_received += bytes.len() as u64;
+
+        if let Some(peer_ack_size) = self.peer_window_ack_size {
+            self.bytes_received_since_last_ack += bytes.len() as u32;
+            if self.bytes_received_since_last_ack >= peer_ack_size {
+                let ack_message = RtmpMessage::Acknowledgement {sequence_number: self.bytes_received_since_last_ack};
+                let ack_payload = ack_message.into_message_payload(self.get_epoch(), 0)?;
+                let ack_packet = self.serializer.serialize(&ack_payload, false, false)?;
+
+                self.bytes_received_since_last_ack = 0;
+                results.push(ClientSessionResult::OutboundResponse(ack_packet));
+            }
+        }
 
         let mut bytes_to_process = bytes;
         loop {
@@ -87,6 +106,9 @@ impl ClientSession {
                 Some(payload) => {
                     let message = payload.to_rtmp_message()?;
                     let mut message_results = match message {
+                        RtmpMessage::Acknowledgement {sequence_number}
+                            => self.handle_acknowledgement(sequence_number)?,
+
                         RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}
                             => self.handle_amf0_command(command_name, transaction_id, command_object, additional_arguments)?,
 
@@ -98,6 +120,12 @@ impl ClientSession {
 
                         RtmpMessage::VideoData {data}
                             => self.handle_video_data(payload.message_stream_id, data, payload.timestamp)?,
+
+                        RtmpMessage::UserControl {event_type, timestamp, stream_id, buffer_length}
+                            => self.handle_user_control(event_type, timestamp, stream_id, buffer_length)?,
+
+                        RtmpMessage::WindowAcknowledgement {size}
+                            => self.handle_window_ack_size(size)?,
 
                         _ => vec![ClientSessionResult::UnhandleableMessageReceived(payload)],
                     };
@@ -195,6 +223,20 @@ impl ClientSession {
                 Ok(vec![ClientSessionResult::OutboundResponse(packet)])
             }
         }
+    }
+
+    pub fn send_ping_request(&mut self) -> Result<(Packet, RtmpTimestamp), ClientSessionError> {
+        let current_epoch = self.get_epoch();
+        let message = RtmpMessage::UserControl {
+            event_type: UserControlEventType::PingRequest,
+            buffer_length: None,
+            stream_id: None,
+            timestamp: Some(current_epoch.clone()),
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), 0)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok((packet, current_epoch))
     }
 
     fn handle_video_data(&self, stream_id: u32, data: Bytes, timestamp: RtmpTimestamp) -> ClientResult {
@@ -472,6 +514,47 @@ impl ClientSession {
         metadata.apply_metadata_values(properties);
 
         let event = ClientSessionEvent::StreamMetadataReceived {metadata};
+        Ok(vec![ClientSessionResult::RaisedEvent(event)])
+    }
+
+    fn handle_acknowledgement(&mut self, sequence_number: u32) -> ClientResult {
+        let event = ClientSessionEvent::AcknowledgementReceived {bytes_received: sequence_number};
+        Ok(vec![ClientSessionResult::RaisedEvent(event)])
+    }
+
+    fn handle_window_ack_size(&mut self, size: u32) -> ClientResult {
+        self.peer_window_ack_size = Some(size);
+        Ok(Vec::new())
+    }
+
+    fn handle_user_control(&mut self,
+                           event_type: UserControlEventType,
+                           timestamp: Option<RtmpTimestamp>,
+                           _stream_id: Option<u32>,
+                           _buffer_length: Option<u32>) -> ClientResult {
+        match event_type {
+            UserControlEventType::PingRequest => self.handle_ping_request(timestamp),
+            UserControlEventType::PingResponse => self.handle_ping_response(timestamp),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    fn handle_ping_request(&mut self, timestamp: Option<RtmpTimestamp>) -> ClientResult {
+        let message = RtmpMessage::UserControl {
+            event_type: UserControlEventType::PingResponse,
+            buffer_length: None,
+            stream_id: None,
+            timestamp,
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), 0)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+        Ok(vec![ClientSessionResult::OutboundResponse(packet)])
+    }
+
+    fn handle_ping_response(&mut self, timestamp: Option<RtmpTimestamp>) -> ClientResult {
+        let timestamp = timestamp.unwrap_or(RtmpTimestamp::new(0));
+        let event = ClientSessionEvent::PingResponseReceived {timestamp};
         Ok(vec![ClientSessionResult::RaisedEvent(event)])
     }
 
