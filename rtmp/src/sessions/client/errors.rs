@@ -40,6 +40,13 @@ pub enum ClientSessionErrorKind {
         current_state: ClientState
     },
 
+    /// Encountered when attempting to send a message that requires having an active stream
+    /// opened but none is marked down.  This is almost always a bug with the `ClientSession` as
+    /// this means we are in a valid state (e.g. `Playing` or `Publishing`) yet we never recorded
+    /// what stream id we are publishing/playing on.
+    #[fail(display = "No known stream id is active to perform publish/playback actions on")]
+    NoKnownActiveStreamIdWhenRequired,
+
     /// Encountered when the client requests a stream be created and the server rejects the command
     #[fail(display = "An attempt to create a stream on the server failed")]
     CreateStreamFailed,

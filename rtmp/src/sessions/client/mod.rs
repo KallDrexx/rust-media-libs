@@ -273,6 +273,128 @@ impl ClientSession {
         Ok((packet, current_epoch))
     }
 
+    pub fn publish_metadata(&mut self, metadata: &StreamMetadata) -> Result<ClientSessionResult, ClientSessionError> {
+        match self.current_state {
+            ClientState::Publishing => (),
+            _ => {
+                let kind = ClientSessionErrorKind::SessionInInvalidState {current_state: self.current_state.clone()};
+                return Err(ClientSessionError {kind});
+            }
+        }
+
+        let active_stream_id = match self.active_stream_id {
+            Some(x) => x,
+            None => {
+                let kind = ClientSessionErrorKind::NoKnownActiveStreamIdWhenRequired;
+                return Err(ClientSessionError {kind});
+            }
+        };
+
+        let mut properties = HashMap::new();
+        if let Some(x) = metadata.video_width {
+            properties.insert("width".to_string(), Amf0Value::Number(x as f64));
+        }
+
+        if let Some(x) = metadata.video_height {
+            properties.insert("height".to_string(), Amf0Value::Number(x as f64));
+        }
+
+        if let Some(ref x) = metadata.video_codec {
+            properties.insert("videocodecid".to_string(), Amf0Value::Utf8String(x.clone()));
+        }
+
+        if let Some(x) = metadata.video_frame_rate {
+            properties.insert("framerate".to_string(), Amf0Value::Number(x as f64));
+        }
+
+        if let Some(x) = metadata.video_bitrate_kbps {
+            properties.insert("videodatarate".to_string(), Amf0Value::Number(x as f64));
+        }
+
+        if let Some(ref x) = metadata.audio_codec {
+            properties.insert("audiocodecid".to_string(), Amf0Value::Utf8String(x.clone()));
+        }
+
+        if let Some(x) = metadata.audio_bitrate_kbps {
+            properties.insert("audiodatarate".to_string(), Amf0Value::Number(x as f64));
+        }
+
+        if let Some(x) = metadata.audio_sample_rate {
+            properties.insert("audiosamplerate".to_string(), Amf0Value::Number(x as f64));
+        }
+
+        if let Some(x) = metadata.audio_channels {
+            properties.insert("audiochannels".to_string(), Amf0Value::Number(x as f64));
+        }
+
+        if let Some(x) = metadata.audio_is_stereo {
+            properties.insert("stereo".to_string(), Amf0Value::Boolean(x));
+        }
+
+        if let Some(ref x) = metadata.encoder {
+            properties.insert("encoder".to_string(), Amf0Value::Utf8String(x.clone()));
+        }
+
+        let message = RtmpMessage::Amf0Data {
+            values: vec![
+                Amf0Value::Utf8String("@setDataFrame".to_string()),
+                Amf0Value::Utf8String("onMetaData".to_string()),
+                Amf0Value::Object(properties),
+            ]
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), active_stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+
+        Ok(ClientSessionResult::OutboundResponse(packet))
+    }
+
+    pub fn publish_video_data(&mut self, data: Bytes, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<ClientSessionResult, ClientSessionError> {
+        match self.current_state {
+            ClientState::Publishing => (),
+            _ => {
+                let kind = ClientSessionErrorKind::SessionInInvalidState {current_state: self.current_state.clone()};
+                return Err(ClientSessionError {kind});
+            }
+        }
+
+        let active_stream_id = match self.active_stream_id {
+            Some(x) => x,
+            None => {
+                let kind = ClientSessionErrorKind::NoKnownActiveStreamIdWhenRequired;
+                return Err(ClientSessionError {kind});
+            }
+        };
+
+        let message = RtmpMessage::VideoData {data};
+        let payload = message.into_message_payload(timestamp, active_stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, can_be_dropped)?;
+        Ok(ClientSessionResult::OutboundResponse(packet))
+    }
+
+    pub fn publish_audio_data(&mut self, data: Bytes, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<ClientSessionResult, ClientSessionError> {
+        match self.current_state {
+            ClientState::Publishing => (),
+            _ => {
+                let kind = ClientSessionErrorKind::SessionInInvalidState {current_state: self.current_state.clone()};
+                return Err(ClientSessionError {kind});
+            }
+        }
+
+        let active_stream_id = match self.active_stream_id {
+            Some(x) => x,
+            None => {
+                let kind = ClientSessionErrorKind::NoKnownActiveStreamIdWhenRequired;
+                return Err(ClientSessionError {kind});
+            }
+        };
+
+        let message = RtmpMessage::AudioData {data};
+        let payload = message.into_message_payload(timestamp, active_stream_id)?;
+        let packet = self.serializer.serialize(&payload, false, can_be_dropped)?;
+        Ok(ClientSessionResult::OutboundResponse(packet))
+    }
+
     fn handle_video_data(&self, stream_id: u32, data: Bytes, timestamp: RtmpTimestamp) -> ClientResult {
         // PlayRequested state is allowed because some servers send video data prior to the
         // `NetStream.Play.Start` command.
@@ -532,9 +654,9 @@ impl ClientSession {
             Some(Amf0Value::Utf8String(code)) => code,
 
             _ => {
-                let kind = ClientSessionErrorKind::InvalidOnStatusArguments;
-                return Err(ClientSessionError {kind});
-            }
+        let kind = ClientSessionErrorKind::InvalidOnStatusArguments;
+        return Err(ClientSessionError {kind});
+        }
         };
 
         match code.as_ref() {
