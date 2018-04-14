@@ -191,16 +191,13 @@ fn successful_play_request_workflow() {
         x => panic!("Expected play message, instead received: {:?}", x),
     };
 
-    let play_response = get_play_success_response(&mut serializer);
+    let play_response = get_play_success_response(&mut serializer, created_stream_id);
     let results = session.handle_input(&play_response.bytes[..]).unwrap();
     let (_, mut events) = split_results(&mut deserializer, results);
 
     assert_eq!(events.len(), 1, "Expected one event returned");
     match events.remove(0) {
-        ClientSessionEvent::PlaybackRequestAccepted {stream_key: event_stream_key} => {
-            assert_eq!(event_stream_key, stream_key, "Unexpected stream key in play request accepted event");
-        },
-
+        ClientSessionEvent::PlaybackRequestAccepted => (),
         x => panic!("Expected playback accepted event, instead received: {:?}", x),
     }
 }
@@ -648,6 +645,61 @@ fn event_raised_when_server_sends_an_acknowledgement() {
     }
 }
 
+#[test]
+fn successful_publish_request_workflow() {
+    let stream_key = "test-key".to_string();
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+
+    let result = session.request_publishing(stream_key.clone(), PublishRequestType::Live).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, vec![result]);
+
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    let transaction_id = match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, 0, "Unexpected stream id");
+            assert_eq!(command_name, "createStream", "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 0, "Uenxpected number of additional arguments");
+            transaction_id
+        },
+
+        x => panic!("Unexpected response seen: {:?}", x),
+    };
+
+    let (created_stream_id, create_stream_response) = get_create_stream_success_response(transaction_id, &mut serializer);
+    let results = session.handle_input(&create_stream_response.bytes[..]).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    match responses.remove(0) {
+        (_, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
+            assert_eq!(command_name, "publish".to_string(), "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
+            assert_eq!(additional_arguments.len(), 2, "Unexpected number of additional arguments");
+            assert_eq!(additional_arguments[0], Amf0Value::Utf8String(stream_key.clone()), "Unexpected stream key");
+            assert_eq!(additional_arguments[1], Amf0Value::Utf8String("live".to_string()), "Unexpected publish type");
+            transaction_id
+        },
+
+        x => panic!("Expected amf0 command, received: {:?}", x),
+    };
+
+    let publish_response = get_publish_success_response(&mut serializer, created_stream_id);
+    let results = session.handle_input(&publish_response.bytes[..]).unwrap();
+    let (_, mut events) = split_results(&mut deserializer, results);
+
+    assert_eq!(events.len(), 1, "Unexpected number of events");
+    match events.remove(0) {
+        ClientSessionEvent::PublishRequestAccepted => (),
+        x => panic!("Expected publish request accepted event, instead received: {:?}", x),
+    }
+}
+
 fn split_results(deserializer: &mut ChunkDeserializer, mut results: Vec<ClientSessionResult>)
     -> (Vec<(MessagePayload, RtmpMessage)>, Vec<ClientSessionEvent>) {
     let mut responses = Vec::new();
@@ -744,7 +796,7 @@ fn get_create_stream_success_response(transaction_id: f64, serializer: &mut Chun
     (stream_id, packet)
 }
 
-fn get_play_success_response(serializer: &mut ChunkSerializer) -> Packet {
+fn get_play_success_response(serializer: &mut ChunkSerializer, stream_id: u32) -> Packet {
     let mut additional_properties = HashMap::new();
     additional_properties.insert("level".to_string(), Amf0Value::Utf8String("status".to_string()));
     additional_properties.insert("code".to_string(), Amf0Value::Utf8String("NetStream.Play.Start".to_string()));
@@ -757,7 +809,24 @@ fn get_play_success_response(serializer: &mut ChunkSerializer) -> Packet {
         additional_arguments: vec![Amf0Value::Object(additional_properties)],
     };
 
-    let payload = message.into_message_payload(RtmpTimestamp::new(0), 0).unwrap();
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
+    serializer.serialize(&payload, false, false).unwrap()
+}
+
+fn get_publish_success_response(serializer: &mut ChunkSerializer, stream_id: u32) -> Packet {
+    let mut additional_properties = HashMap::new();
+    additional_properties.insert("level".to_string(), Amf0Value::Utf8String("status".to_string()));
+    additional_properties.insert("code".to_string(), Amf0Value::Utf8String("NetStream.Publish.Start".to_string()));
+    additional_properties.insert("description".to_string(), Amf0Value::Utf8String("hi".to_string()));
+
+    let message = RtmpMessage::Amf0Command {
+        command_name: "onStatus".to_string(),
+        transaction_id: 0.0,
+        command_object: Amf0Value::Null,
+        additional_arguments: vec![Amf0Value::Object(additional_properties)],
+    };
+
+    let payload = message.into_message_payload(RtmpTimestamp::new(0), stream_id).unwrap();
     serializer.serialize(&payload, false, false).unwrap()
 }
 
@@ -830,18 +899,16 @@ fn perform_successful_play_request(config: ClientSessionConfig,
         x => panic!("Expected play message, instead received: {:?}", x),
     };
 
-    let play_response = get_play_success_response(serializer);
+    let play_response = get_play_success_response(serializer, created_stream_id);
     let results = session.handle_input(&play_response.bytes[..]).unwrap();
     let (_, mut events) = split_results(deserializer, results);
 
     assert_eq!(events.len(), 1, "Expected one event returned");
     match events.remove(0) {
-        ClientSessionEvent::PlaybackRequestAccepted {stream_key: event_stream_key} => {
-            assert_eq!(event_stream_key, stream_key, "Unexpected stream key in play request accepted event");
-        },
-
+        ClientSessionEvent::PlaybackRequestAccepted => (),
         x => panic!("Expected playback accepted event, instead received: {:?}", x),
     }
 
     created_stream_id
 }
+

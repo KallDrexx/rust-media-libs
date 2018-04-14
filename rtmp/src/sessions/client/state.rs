@@ -7,8 +7,14 @@ pub enum ClientState {
     Connected,
 
     /// Playback has been requested for a stream key and we are still waiting for a response
-    PlayRequested { stream_key: String },
+    PlayRequested,
 
     /// We are currently playing back a stream from the server
-    Playing { stream_key: String },
+    Playing,
+
+    /// Publish has been requested and we are waiting for a response
+    PublishRequested,
+
+    /// We are currently publishing to the server
+    Publishing,
 }

@@ -16,9 +16,10 @@ pub enum ClientSessionEvent {
     },
 
     /// The server has accepted our request to play video back from a stream key
-    PlaybackRequestAccepted {
-        stream_key: String,
-    },
+    PlaybackRequestAccepted,
+
+    /// The server has accepted our request to publish video
+    PublishRequestAccepted,
 
     /// The server has sent over new metadata for the stream
     StreamMetadataReceived {
