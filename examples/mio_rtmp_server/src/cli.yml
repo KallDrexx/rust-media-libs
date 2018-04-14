@@ -24,3 +24,22 @@ subcommands:
                 short: t
                 required: true
                 takes_value: true
+    - push:
+        about: Pushes a local stream to a remote server
+        args:
+            - host:
+                short: h
+                required: true
+                takes_value: true
+            - app:
+                short: a
+                required: true
+                takes_value: true
+            - source_stream:
+                short: s
+                required: true
+                takes_value: true
+            - target_stream:
+                short: t
+                required: true
+                takes_value: true

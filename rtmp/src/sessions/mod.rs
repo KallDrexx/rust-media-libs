@@ -14,6 +14,7 @@ pub use self::client::ClientSessionError;
 pub use self::client::ClientSessionErrorKind;
 pub use self::client::ClientSessionResult;
 pub use self::client::ClientState;
+pub use self::client::PublishRequestType;
 
 pub use self::server::ServerSession;
 pub use self::server::ServerSessionEvent;

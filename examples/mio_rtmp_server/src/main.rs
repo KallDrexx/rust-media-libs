@@ -33,9 +33,18 @@ struct PullOptions {
 }
 
 #[derive(Debug)]
+pub struct PushOptions {
+    host: String,
+    app: String,
+    source_stream: String,
+    target_stream: String,
+}
+
+#[derive(Debug)]
 struct AppOptions {
     log_io: bool,
     pull: Option<PullOptions>,
+    push: Option<PushOptions>,
 }
 
 fn main() {
@@ -48,7 +57,7 @@ fn main() {
     println!("Listening for connections");
     poll.register(&listener, SERVER, Ready::readable(), PollOpt::edge()).unwrap();
 
-    let mut server = Server::new();
+    let mut server = Server::new(&app_options.push);
     let mut connection_count = 1;
     let mut connections = Slab::new();
 
@@ -110,20 +119,24 @@ fn main() {
                                 ReadResult::NoBytesReceived => (),
                                 ReadResult::BytesReceived {buffer, byte_count} => {
                                     connections_to_close = handle_read_bytes(&buffer[..byte_count],
-                                        token,
-                                        &mut server,
-                                        &mut connections,
-                                        &mut poll);
+                                                                             token,
+                                                                             &mut server,
+                                                                             &mut connections,
+                                                                             &mut poll,
+                                                                             &app_options,
+                                                                             &mut connection_count);
                                 },
 
                                 ReadResult::HandshakeCompleted {buffer, byte_count} => {
                                     // Server will understand that the first call to
                                     // handle_read_bytes signifies that handshaking is completed
                                     connections_to_close = handle_read_bytes(&buffer[..byte_count],
-                                         token,
-                                         &mut server,
-                                         &mut connections,
-                                         &mut poll);
+                                                                             token,
+                                                                             &mut server,
+                                                                             &mut connections,
+                                                                             &mut poll,
+                                                                             &app_options,
+                                                                             &mut connection_count);
                                 },
                             }
                         },
@@ -181,8 +194,21 @@ fn get_app_options() -> AppOptions {
         }
     };
 
+    let push_options = match matches.subcommand_matches("push") {
+        None => None,
+        Some(push_matches) => {
+            Some(PushOptions {
+                host: push_matches.value_of("host").unwrap().to_string(),
+                app: push_matches.value_of("app").unwrap().to_string(),
+                source_stream: push_matches.value_of("source_stream").unwrap().to_string(),
+                target_stream: push_matches.value_of("target_stream").unwrap().to_string(),
+            })
+        }
+    };
+
     let app_options = AppOptions {
         pull: pull_options,
+        push: push_options,
         log_io,
     };
 
@@ -224,7 +250,9 @@ fn handle_read_bytes(bytes: &[u8],
                      from_token: usize,
                      server: &mut Server,
                      connections: &mut Slab<Connection>,
-                     poll: &mut Poll) -> ClosedTokens {
+                     poll: &mut Poll,
+                     app_options: &AppOptions,
+                     connection_count: &mut usize) -> ClosedTokens {
     let mut closed_tokens = ClosedTokens::new();
 
     let mut server_results = match server.bytes_received(from_token, bytes) {
@@ -247,7 +275,29 @@ fn handle_read_bytes(bytes: &[u8],
 
             ServerResult::DisconnectConnection {connection_id} => {
                 closed_tokens.insert(connection_id);
-            }
+            },
+
+            ServerResult::StartPushing => {
+                if let Some(ref push) = app_options.push {
+                    println!("Starting push to rtmp://{}/{}/{}", push.host, push.app, push.target_stream);
+
+                    let mut push_host = push.host.clone();
+                    if !push_host.contains(":") {
+                        push_host = push_host + ":1935";
+                    }
+
+                    let addr = SocketAddr::from_str(&push_host).unwrap();
+                    let stream = TcpStream::connect(&addr).unwrap();
+                    let mut connection = Connection::new(stream, *connection_count, app_options.log_io, false);
+                    let token = connections.insert(connection);
+                    *connection_count += 1;
+
+                    println!("Push client started with connection id {}", token);
+                    connections[token].token = Some(Token(token));
+                    connections[token].register(poll).unwrap();
+                    server.register_push_client(token);
+                }
+            },
         }
     }
 
