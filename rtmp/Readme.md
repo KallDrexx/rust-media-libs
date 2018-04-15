@@ -14,6 +14,13 @@ This crate works with Cargo and is on [crates.io](http://crates.io).  Add it to 
 rml_rtmp = "0.1"
 ```
 
+## Performance
+
+The intention is that this library is as high performance as possible.  We use the `Bytes` crate to keep allocations as 
+minimal as possible, and according to the [video relay benchmark](../benchmarks/video-relay) on my Ryzen 5 1600X (on a single 
+thread) I can relay 10KB video packets from one publisher to two subscribers with an average of 24 microseconds.  This should
+leave ample cpu cycles for custom logic and for it to run on lower end devices.
+
 ## Examples
 
 Two large examples can be found in the repository:

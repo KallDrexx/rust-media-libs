@@ -5,6 +5,6 @@ authors = ["Matthew Shapiro <me@mshapiro.net>"]
 description = "Benchmark to test the speed of one publisher relaying video to two players"
 
 [dependencies]
-rml_rtmp = "0.1"
-rml_amf0 = "0.1"
+rml_rtmp = { path = "../../rtmp" }
+rml_amf0 = { path = "../../amf0" }
 bytes = "0.4"
