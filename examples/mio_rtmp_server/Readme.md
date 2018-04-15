@@ -16,7 +16,7 @@ that act as RTMP publishing clients and playback clients.
 The most basic usage to start an RTMP server is to use `cargo run`
 
 ```
->cargo run
+cargo run
     Finished dev [unoptimized + debuginfo] target(s) in 0.0 secs
      Running `\target\debug\mio-rtmp-server.exe`
 Application options: AppOptions { log_io: false, pull: None, push: None }
