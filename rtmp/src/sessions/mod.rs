@@ -1,8 +1,16 @@
-/// This module contains implemented session abstractions.
-///
-/// A session is an abstraction that reacts to incoming RTMP messages (encoded as RTMP chunks)
-/// with packets to be sent as a response, as well as raising events that applications can
-/// perform custom logic on.
+/*!
+This module contains implemented session abstractions.
+
+A session is a high level abstraction that makes it simple to create custom RTMP clients and
+servers without having to worry about the exact flow of RTMP messages to perform specific
+actions.  The session has it's own `ChunkSerializer` and `ChunkDeserializer` so consumers only
+have to worry about bytes in and bytes/events out.
+
+A single session represents a single peer in an RTMP connection, so if multiple connections are
+being managed (in any direction) each connection should have its own, distinct, session instance.
+
+It is also expected that a session has been created *after* handshaking has been completed.
+*/
 
 mod server;
 mod client;
@@ -43,6 +51,7 @@ pub struct StreamMetadata {
 }
 
 impl StreamMetadata {
+    /// Creates a new (and empty) metadata instance
     fn new() -> StreamMetadata {
         StreamMetadata {
             video_width: None,

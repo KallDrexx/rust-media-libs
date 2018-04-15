@@ -1,11 +1,12 @@
-//! Since RTMP timestamps are always a 32 byte unsigned integers, and it's meant to support
-//! streams that can go on forever, timestamps have to work with time values that overflow
-//! and underflow a 32 bit integer but still be able to do comparisons.
+//! RTMP timestamps are 32 byte unsigned integers representing the number of milliseconds from
+//! and unknown epoch.
 //!
+//! Since it's meant to support streams that can go on forever, timestamps have to work with
+//! time values that overflow and underflow a 32 bit integer but still be able to do comparisons.
 //! To support this the `RtmpTimestamp` struct was created to abstract away the calculations
 //! and make it easy to work with RTMP timestamps.
 //!
-//! According to the RTMP spec, times are adjacent if they are within 2^31 - 1 milliseconds
+//! According to the RTMP spec, times are adjacent if they are within 2<sup>31</sup> - 1 milliseconds
 //! of each other.
 //!
 //! # Examples
@@ -57,18 +58,22 @@ use std::ops::{Add, Sub};
 use std::num::Wrapping;
 use std::cmp::{Ordering, max, min};
 
+/// The representation of a RTMP timestamp
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
 pub struct RtmpTimestamp {
+    /// The time (as milliseconds from an unknown epoch) being represented by the timestamp
     pub value: u32
 }
 
 impl RtmpTimestamp {
+    /// Creates a new timestamp with the specified time value
     pub fn new(initial_value: u32) -> Self {
         RtmpTimestamp {
             value: initial_value
         }
     }
 
+    /// Sets the timestamp to a new time value
     pub fn set(&mut self, new_value: u32) {
         self.value = new_value;
     }

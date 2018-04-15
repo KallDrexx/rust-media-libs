@@ -25,6 +25,10 @@ impl fmt::Debug for MessagePayload {
 }
 
 impl MessagePayload {
+    /// Creates a new message payload with default values.
+    ///
+    /// This is mostly used when all information about a message is not known at creation time
+    /// but instead is built up over time (e.g. RTMP chunk deserialization process).
     pub fn new() -> MessagePayload {
         MessagePayload {
             timestamp: RtmpTimestamp::new(0),
@@ -34,6 +38,12 @@ impl MessagePayload {
         }
     }
 
+    /// Deserializes the message data in the specified payload into its corresponding
+    /// `RtmpMessage`.
+    ///
+    /// Note that flash clients (like Wowza's test client) lie and mark amf0 data and commands as
+    /// amf3 values.  It is unknown why this happens, but any Amf3 command/data messages that are
+    /// seen are deserialized as amf0.  So far this has not caused any issues.
     pub fn to_rtmp_message(&self) -> Result<RtmpMessage, MessageDeserializationError> {
         match self.type_id {
             1 => types::set_chunk_size::deserialize(self.data.clone()),
@@ -65,6 +75,10 @@ impl MessagePayload {
         }
     }
 
+    /// This creates a `MessagePayload` from an `RtmpMessage`.
+    ///
+    /// Since RTMP messages do not contain timestamp or the conversation stream id these must be
+    /// provided at the time of creation.
     pub fn from_rtmp_message(message: RtmpMessage, timestamp: RtmpTimestamp, message_stream_id: u32) -> Result<MessagePayload, MessageSerializationError> {
         let type_id = message.get_message_type_id();
 

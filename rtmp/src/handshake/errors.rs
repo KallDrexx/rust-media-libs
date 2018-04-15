@@ -1,9 +1,13 @@
+//! Errors that can occur during the handshaking process
+
 use std::io;
 use std::fmt;
 use failure::{Backtrace, Fail};
 
+/// Data pertaining to errors that occurred during the handshaking process.
 #[derive(Debug)]
 pub struct HandshakeError {
+    /// The type of error that was observed
     pub kind: HandshakeErrorKind,
 }
 
@@ -26,7 +30,7 @@ pub enum HandshakeErrorKind {
     IncorrectPeerTime,
 
     /// This is encountered when the peer did not send back the same random data in their packet
-    /// #2 that we sent them in our packet #1.
+    /// number 2 that we sent them in our packet number 1.
     #[fail(display = "Peer did not send the correct random data back")]
     IncorrectRandomData,
 

@@ -31,6 +31,11 @@ pub struct ChunkSerializer {
 }
 
 impl ChunkSerializer {
+    /// Creates a new `ChunkSerializer`.
+    ///
+    /// By default (per the RTMP specification) the serializer will break any message into RTMP
+    /// chunks with a max size of 128.  To change this amount a call to `set_max_chunk_size()` is
+    /// required.
     pub fn new() -> ChunkSerializer {
         ChunkSerializer {
             max_chunk_size: INITIAL_MAX_CHUNK_SIZE,
@@ -38,7 +43,21 @@ impl ChunkSerializer {
         }
     }
 
+    /// Changes the maximum amount of bytes from RTMP messages that can be in a single RTMP chunk.
+    ///
+    /// Changing the maximum chunk size requires notifying the receiver of the change, as it will
+    /// affect every chunk you send out from here on out.  Therefore, when this method is called
+    /// we automatically serialize a `SetChunkSize` RTMP message to be sent to the peer.  This
+    /// packet *must* be sent and cannot be ignored.
     pub fn set_max_chunk_size(&mut self, new_size: u32, time: RtmpTimestamp) -> Result<Packet, ChunkSerializationError> {
+        if new_size > 2147483647 {
+            return Err(ChunkSerializationError{
+                kind:ChunkSerializationErrorKind::InvalidMaxChunkSize {
+                    attempted_chunk_size: new_size
+                }
+            });
+        }
+
         let set_chunk_size_message = RtmpMessage::SetChunkSize {size: new_size};
         let message_payload = MessagePayload::from_rtmp_message(set_chunk_size_message, time, 0)?;
         let packet = self.serialize(&message_payload, true, false)?;
@@ -47,6 +66,26 @@ impl ChunkSerializer {
         Ok(packet)
     }
 
+    /// Turns an RTMP message payload into binary data (representing RTMP chunks) that can be
+    /// sent over the network.
+    ///
+    /// The RTMP chunk format has a basic form of header compression it utilizes.  If a chunk
+    /// is sent with some header information, and the next chunk to be generated has a lot of
+    /// similar header information, than the subsequent chunk can ommit some information and flag
+    /// itself as requiring information from the previous chunk.
+    ///
+    /// This compression can be bypassed by setting `force_uncompressed` to `true`.  This is
+    /// required in certain circumstances, as some encoders or video players require the initial
+    /// RTMP messages (after the handshake) to always be type 0 chunks (uncompressed).  The reason
+    /// for this is unclear, but in these circumstances the clients or servers will not work
+    /// properly without it.
+    ///
+    /// If the message to be serialized is a video or audio data message, and it's not a a/v header,
+    /// then it can be safe to set `can_be_dropped` to `true`.  This will mark the packet so that
+    /// the network transport mechanisms can make a decision if the packet should be dropped (if
+    /// there's not enough bandwidth to keep the stream in real time) or if it should be enqueued
+    /// even if backlogged.   Setting this to `true` makes sure that if the packet is dropped that
+    /// the receiver will not have deserialization problems on any subsequent RTMP chunks.
     pub fn serialize(&mut self, message: &MessagePayload, force_uncompressed: bool, can_be_dropped: bool) -> Result<Packet, ChunkSerializationError> {
         if message.data.len() > 16777215 {
             return Err(ChunkSerializationError{kind: ChunkSerializationErrorKind::MessageTooLong {size: message.data.len() as u32}});

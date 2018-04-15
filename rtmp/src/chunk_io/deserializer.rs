@@ -49,6 +49,10 @@ enum ParseStageResult {
 }
 
 impl ChunkDeserializer {
+    /// Create a new `ChunkDeserializer` with its initial properties.
+    ///
+    /// Per the RTMP specification an initial `ChunkDeserializer` is expecting RTMP chunks with
+    /// a max size of 128 bytes.
     pub fn new() -> ChunkDeserializer {
         ChunkDeserializer {
             max_chunk_size: INITIAL_MAX_CHUNK_SIZE,
@@ -62,6 +66,84 @@ impl ChunkDeserializer {
         }
     }
 
+    /// Attempts to read a complete RTMP message from the passed in bytes.
+    ///
+    /// It is normal that one set of bytes will not form a complete RTMP message (or even a
+    /// complete RTMP chunk).  Therefore it can be assumed that the deserializer will store all
+    /// partial message bytes passed into it and the same bytes should not be passed in repeatedly,
+    /// otherwise deserialization errors will most likely occur.
+    ///
+    /// If the bytes that were passed in did not form a complete RTMP message, then the bytes are
+    /// added to an internal buffer for storage and `Ok(None)` is returned while it waits for
+    /// the next `get_next_message()` call to complete the message.
+    ///
+    /// If the bytes that were passed in formed multiple RTMP messages than only the first message
+    /// is deserialized and any subsequent messages are not read until the next `get_next_message()`
+    /// call.
+    ///
+    /// This is important because if the peer sends a `SendChunkSize` message (meaning it will
+    /// change the maximum size of RTMP chunks it sends) you must process that message and call
+    /// the `set_max_chunk_size()` method prior to the next `get_next_message()` call.   Otherwise
+    /// if the peer sends a chunk larger than the previous max chunk size the message will not be
+    /// deserialized properly (and most likely errors will occur).
+    ///
+    /// It is expected that consumers will call `get_next_message()` in a loop until `None` is
+    /// returned.  Since it is important not to keep sending it the same bytes over and over again
+    /// an empty slice must be passed in for subsequent calls.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// # extern crate bytes;
+    /// # extern crate rml_rtmp;
+    /// # use bytes::Bytes;
+    /// # use rml_rtmp::time::RtmpTimestamp;
+    /// # use rml_rtmp::chunk_io::{ChunkSerializer, ChunkDeserializer};
+    /// # use rml_rtmp::messages::MessagePayload;
+    /// # fn main() {
+    /// let input1 = MessagePayload {
+    ///     timestamp: RtmpTimestamp::new(55),
+    ///     message_stream_id: 1,
+    ///     type_id: 15,
+    ///     data: Bytes::from(vec![1, 2, 3, 4, 5, 6]),
+    /// };
+    ///
+    /// let input2 = MessagePayload {
+    ///     timestamp: RtmpTimestamp::new(65),
+    ///     message_stream_id: 1,
+    ///     type_id: 15,
+    ///     data: Bytes::from(vec![8, 9, 10]),
+    /// };
+    ///
+    /// let input3 = MessagePayload {
+    ///     timestamp: RtmpTimestamp::new(75),
+    ///     message_stream_id: 1,
+    ///     type_id: 15,
+    ///     data: Bytes::from(vec![1, 2, 3]),
+    /// };
+    ///
+    /// let mut serializer = ChunkSerializer::new();
+    /// let mut packet1 = serializer.serialize(&input1, false, false).unwrap();
+    /// let mut packet2 = serializer.serialize(&input2, false, false).unwrap();
+    /// let mut packet3 = serializer.serialize(&input3, false, false).unwrap();
+    ///
+    /// let mut all_bytes = Vec::new();
+    /// all_bytes.append(&mut packet1.bytes);
+    /// all_bytes.append(&mut packet2.bytes);
+    /// all_bytes.append(&mut packet3.bytes);
+    ///
+    /// let mut deserializer = ChunkDeserializer::new();
+    /// let message1 = deserializer.get_next_message(&all_bytes[..]).unwrap();
+    /// let message2 = deserializer.get_next_message(&[]).unwrap();
+    /// let message3 = deserializer.get_next_message(&[]).unwrap();
+    /// let message4 = deserializer.get_next_message(&[]).unwrap();
+    ///
+    /// assert_eq!(message1, Some(input1));
+    /// assert_eq!(message2, Some(input2));
+    /// assert_eq!(message3, Some(input3));
+    /// assert_eq!(message4, None);
+    /// # }
+    /// ```
     pub fn get_next_message(&mut self, bytes: &[u8]) -> Result<Option<MessagePayload>, ChunkDeserializationError> {
         self.buffer.extend_from_slice(bytes);
 
@@ -83,6 +165,18 @@ impl ChunkDeserializer {
         }
     }
 
+    /// Tells the deserializer that the peer will start sending RTMP chunks with a different
+    /// max chunk size.
+    ///
+    /// When an RTMP message is larger than the current max chunk size the serializer
+    /// will split the message across multiple RTMP chunks, with each chunk only containing the number
+    /// of bytes that fit into the max chunk size value.  Therefore, the sender and the receiver
+    /// must be exactly in tune as to what max chunk size they are utilizing.  Any mismatch will
+    /// cause errors in the deserialization process, as it will expect split chunks where there
+    /// are noone, or encounter a split chunk where it wasn't expecting one.
+    ///
+    /// This method should almost always be called only in reaction to receiving a `SetChunkSize`
+    /// message from the other end.
     pub fn set_max_chunk_size(&mut self, new_size: usize) ->  Result<(), ChunkDeserializationError> {
         if new_size > 2147483647 {
             return Err(ChunkDeserializationError{kind:ChunkDeserializationErrorKind::InvalidMaxChunkSize {chunk_size: new_size}});

@@ -35,12 +35,11 @@ type ClientResult = Result<Vec<ClientSessionResult>, ClientSessionError>;
 /// includes how to connect to an application on the server, requesting publishing or playback,
 /// and reacting to events and responses the server may send.
 ///
-/// While RTMP connections can support multiple media operations simultanously (e.g. have 2
-/// streams send video while another one pulls video) the `ClientSession` has been designed for
-/// the main use case of one operation per connection.
+/// While RTMP connections can support multiple media operations simultaneously the `ClientSession`
+/// has been designed for the main use case of one operation per connection.
 ///
-/// Due to the way the header compression properties of the RTMP chunking protocol, is is required
-/// that
+/// Due to the way the header compression properties of the RTMP chunking protocol works,
+/// is is required that:
 ///
 /// * All bytes **after** the handshake has been completed are passed into the `ClientSession` in
 /// the order they were received
@@ -66,6 +65,7 @@ pub struct ClientSession {
 }
 
 impl ClientSession {
+    /// Creates a new client session with the specified configuration
     pub fn new(config: ClientSessionConfig) -> ClientSession {
         let session = ClientSession {
             start_time: SystemTime::now(),
@@ -85,6 +85,8 @@ impl ClientSession {
         session
     }
 
+    /// Takes in any number of bytes from the peer and processes them.  Any resulting responses or
+    /// events are returned.
     pub fn handle_input(&mut self, bytes: &[u8]) -> ClientResult {
         let mut results = Vec::new();
         self.bytes_received += bytes.len() as u64;
@@ -141,6 +143,8 @@ impl ClientSession {
         Ok(results)
     }
 
+    /// Forms an RTMP message requesting a connection to the specified application on the server.
+    /// An event will be raised when the request is accepted or rejected.
     pub fn request_connection(&mut self, app_name: String) -> Result<ClientSessionResult, ClientSessionError> {
         match self.current_state {
             ClientState::Disconnected => (),
@@ -172,6 +176,9 @@ impl ClientSession {
         Ok(ClientSessionResult::OutboundResponse(packet))
     }
 
+    /// Starts the process of requesting playback on the server for the specified stream key.  An
+    /// event will be raised when the request is accepted or rejected.  Once accepted we will
+    /// receive audio, video, and metadata information via `ClientSessionEvent`s.
     pub fn request_playback(&mut self, stream_key: String) -> Result<ClientSessionResult, ClientSessionError> {
         match self.current_state {
             ClientState::Connected => (),
@@ -201,6 +208,8 @@ impl ClientSession {
         Ok(ClientSessionResult::OutboundResponse(packet))
     }
 
+    /// Starts the process of requesting to publish to the server on the specified stream key.  An
+    /// event will be raised when the request is accepted or rejected.
     pub fn request_publishing(&mut self, stream_key: String, publish_type: PublishRequestType) -> Result<ClientSessionResult, ClientSessionError> {
         match self.current_state {
             ClientState::Connected => (),
@@ -233,6 +242,8 @@ impl ClientSession {
         Ok(ClientSessionResult::OutboundResponse(packet))
     }
 
+    /// If currently playing on a stream key, this is used to tell the server we no longer want to
+    /// play video from the stream.
     pub fn stop_playback(&mut self) -> ClientResult {
         // Validate we are in a state to do this
         match self.current_state {
@@ -259,6 +270,8 @@ impl ClientSession {
         }
     }
 
+    /// If currently publishing on a stream key, this is used to tell the server we no longer want
+    /// to publish to that stream.
     pub fn stop_publishing(&mut self) -> ClientResult {
         // Validate we are in a state to do this
         match self.current_state {
@@ -285,6 +298,7 @@ impl ClientSession {
         }
     }
 
+    /// Sends a ping request to the server.  An event will be raised when we get a response back
     pub fn send_ping_request(&mut self) -> Result<(Packet, RtmpTimestamp), ClientSessionError> {
         let current_epoch = self.get_epoch();
         let message = RtmpMessage::UserControl {
@@ -299,6 +313,8 @@ impl ClientSession {
         Ok((packet, current_epoch))
     }
 
+    /// If publishing, this allows us to send encoder metadata to the server to send to all
+    /// players.
     pub fn publish_metadata(&mut self, metadata: &StreamMetadata) -> Result<ClientSessionResult, ClientSessionError> {
         match self.current_state {
             ClientState::Publishing => (),
@@ -375,6 +391,7 @@ impl ClientSession {
         Ok(ClientSessionResult::OutboundResponse(packet))
     }
 
+    /// If publishing, this allows us to send video data to the server on the publishing stream.
     pub fn publish_video_data(&mut self, data: Bytes, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<ClientSessionResult, ClientSessionError> {
         match self.current_state {
             ClientState::Publishing => (),
@@ -398,6 +415,7 @@ impl ClientSession {
         Ok(ClientSessionResult::OutboundResponse(packet))
     }
 
+    /// If publishing, this allows us to send audio data to the server on the publishing stream.
     pub fn publish_audio_data(&mut self, data: Bytes, timestamp: RtmpTimestamp, can_be_dropped: bool) -> Result<ClientSessionResult, ClientSessionError> {
         match self.current_state {
             ClientState::Publishing => (),

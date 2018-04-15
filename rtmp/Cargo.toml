@@ -5,9 +5,12 @@ version = "0.1.0"
 authors = ["Matthew Shapiro <me@mshapiro.net>"]
 repository = "https://github.com/KallDrexx/rust-media-libs"
 license = "MIT"
+readme = "README.md"
+categories = ["video", "streaming", 'media']
+keywords = ["rtmp", "video"]
 
 [dependencies]
-rml_amf0 = { path = "../amf0"}
+rml_amf0 = "0.1.1"
 byteorder = "1.2.1"
 bytes = "0.4"
 rand = "0.3"

@@ -1,3 +1,11 @@
+/*!
+This module contains all the RTMP message types as well as functionality for serializing
+and deserializing these messages into payloads.
+
+`MessagePayload`s have auxiliary data about an RTMP message, such as what message stream it is
+meant for, the timestamp for the message and what type of message it is.
+*/
+
 mod types;
 mod deserialization_errors;
 mod serialization_errors;
@@ -10,32 +18,85 @@ use bytes::Bytes;
 use rml_amf0::Amf0Value;
 use ::time::RtmpTimestamp;
 
+/// The type of bandwidth limiting that is being requested
 #[derive(Eq, PartialEq, Debug, Clone)]
-pub enum PeerBandwidthLimitType { Hard, Soft, Dynamic }
+pub enum PeerBandwidthLimitType {
+    /// Peer should limit its output bandwidth to the indicated window size
+    Hard,
 
+    /// The peer should limit it's output bandwidth to the window indicated or the limit
+    /// already in effect, whichever is smaller.
+    Soft,
+
+    /// If we previously had a hard limit, this limit should be treated as hard.  Otherwise ignore.
+    Dynamic
+}
+
+/// Events and notifications that are raised with the peer
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum UserControlEventType {
+    /// Notifies the client that a stream has become functional
     StreamBegin,
+
+    /// Notifies the client that the playback of data on the stream is over
     StreamEof,
+
+    /// Notifies the client that there is no more data on the stream.
     StreamDry,
+
+    /// Notifies the server of the buffer size (in milliseconds) that the client is using
     SetBufferLength,
+
+    /// Notifies the client that the stream is a recorded stream.
     StreamIsRecorded,
+
+    /// Server sends this to test whether the client is reachable.
     PingRequest,
+
+    /// Client sends this in response to a ping request
     PingResponse
 }
 
+/// An enumeration of all types of RTMP messages that are supported
 #[derive(PartialEq, Debug, Clone)]
 pub enum RtmpMessage {
+    /// This type of message is used when an RTMP message is encountered with a type id that
+    /// we do not know about
     Unknown { type_id: u8, data: Bytes },
+
+    /// Notifies the peer that if it is waiting for chunks to complete a message that it should
+    /// discard the chunks it has already received.
     Abort { stream_id: u32 },
+
+    /// An acknowledgement sent to confirm how many bytes that has been received since the prevoius
+    /// acknowledgement.
     Acknowledgement { sequence_number: u32 },
+
+    /// A command being sent, encoded with amf0 values
     Amf0Command { command_name: String, transaction_id: f64, command_object: Amf0Value, additional_arguments: Vec<Amf0Value> },
+
+    /// A message containing an array of data encoded as amf0 values
     Amf0Data { values: Vec<Amf0Value> },
+
+    /// A message containing audio data
     AudioData { data: Bytes },
+
+    /// Tells the peer that the maximum chunk size for RTMP chunks it will be sending is changing
+    /// to the specified size.
     SetChunkSize { size: u32 },
+
+    /// Indicates that the peer should limit its output bandwidth
     SetPeerBandwidth { size: u32, limit_type: PeerBandwidthLimitType },
+
+    /// Notifies the peer of an event, such as a stream being
+    /// created or telling the peer how much of a buffer it should have.
     UserControl { event_type: UserControlEventType, stream_id: Option<u32>, buffer_length: Option<u32>, timestamp: Option<RtmpTimestamp> },
+
+    /// A message containing video data
     VideoData { data: Bytes },
+
+    /// Notifies the peer how many bytes should be received before sending an `Acknowledgement`
+    /// message
     WindowAcknowledgement { size: u32 }
 }
 

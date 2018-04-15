@@ -7,6 +7,7 @@ pub struct ClientSessionConfig {
 }
 
 impl ClientSessionConfig {
+    /// Creates a new configuration object with default values
     pub fn new() -> ClientSessionConfig {
         ClientSessionConfig {
             flash_version: "WIN 23,0,0,207".to_string(),

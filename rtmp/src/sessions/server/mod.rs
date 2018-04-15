@@ -215,11 +215,6 @@ impl ServerSession {
         }
     }
 
-    /// Tells the server session that it should reject an outstanding request
-    pub fn reject_request(&mut self, _request_id: u32) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
-        unimplemented!()
-    }
-
     /// Prepares metadata information to be sent to the client
     pub fn send_metadata(&mut self, stream_id: u32, metadata: Rc<StreamMetadata>) -> Result<Packet, ServerSessionError> {
         let mut properties = HashMap::with_capacity(11);

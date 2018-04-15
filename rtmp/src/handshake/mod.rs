@@ -1,25 +1,28 @@
-/// This module allows handling the RTMP handshake process.  There are two types of handshakes
-/// that can potentially be seen.
-///
-/// The first is the original RTMP handshake that is defined in the official RTMP specification
-/// released by Adobe.  However, if a flash client connects using this handshake then the client
-/// will not play h.264 video (it is assumed this is only a restriction in flash based clients).
-///
-/// Flash player 9 introduced a new handshake that utilizes SHA digests and Diffie-Hellman
-/// encryption key negotiation, and it is required if a connected flash player
-/// is going to display h.264 video.  While there is no official specifications for this format
-/// this module is implemented using a clean-room specification found at
-/// https://www.cs.cmu.edu/~dst/Adobe/Gallery/RTMPE.txt.
-///
-/// This handshake module allows for handling both the original and fp9+ handshake methods, and
-/// determines which method of verification to use based on the packet 1 it receives.  The only
-/// time this might fail is if a peer only accepts the originally specified RTMP handshake format
-/// exactly and verifies that bytes 4-7 are zeroes.  At this point in time any (with the prevalence
-/// of h.264 video) all clients and servers should work against the fp9 method so this should not
-/// be an issue.
-///
-/// **Note:** At this point of time we only accept (and send) command bytes of 3, meaning that
-/// no encryption is used.
+/*! 
+This module provides functionality for handling the RTMP handshake process.  There are two types
+of handshakes that can potentially be seen.
+
+The first is the original RTMP handshake that is defined in the official RTMP specification
+released by Adobe.  However, if a flash client connects using this handshake then the client
+will not play h.264 video (it is assumed this is only a restriction in flash based clients).
+
+Flash player 9 introduced a new handshake that utilizes SHA digests and Diffie-Hellman
+encryption key negotiation, and it is required if a connected flash player
+is going to display h.264 video.  While there is no official specifications for this format
+this module is implemented using a clean-room specification found at
+<https://www.cs.cmu.edu/~dst/Adobe/Gallery/RTMPE.txt>.
+
+This handshake module allows for handling both the original and fp9+ handshake methods, and
+determines which method of verification to use based on the packet 1 it receives.  The only
+time this might fail is if a peer only accepts the originally specified RTMP handshake format
+exactly and verifies that bytes 4-7 are zeroes.  At this point in time any (with the prevalence
+of h.264 video) all clients and servers should work against the fp9 method so this should not
+be an issue.
+
+**Note:** At this point of time we only accept (and send) command bytes of 3, meaning that
+no encryption is used.
+
+*/
 
 pub mod errors;
 
@@ -37,6 +40,7 @@ const RANDOM_CRUD : [u8; 32] = [0xf0, 0xee, 0xc2, 0x4a, 0x80_u8, 0x68_u8, 0xbe_u
 const GENUINE_FMS_CONST : &'static str = "Genuine Adobe Flash Media Server 001";
 const GENUINE_FP_CONST : &'static str = "Genuine Adobe Flash Player 001";
 
+/// Contains the result after processing bytes for the handshaking process
 #[derive(PartialEq, Eq, Debug)]
 pub enum HandshakeProcessResult {
     /// The handshake process is still on-going
@@ -55,9 +59,16 @@ pub enum HandshakeProcessResult {
     }
 }
 
+/// The type of peer being represented by the handshake.
+///
+/// This only matters due to the FP9 handshaking process, where the client and server use different
+/// calculations for packet generation.
 #[derive(Debug, Eq, PartialEq)]
 pub enum PeerType {
+    /// Handshake being represented as a server
     Server,
+
+    /// Handshake being represented as a client
     Client
 }
 
@@ -76,6 +87,50 @@ enum Stage {
     Complete,
 }
 
+/// Struct that handles the handshaking process.
+///
+/// It should be noted that the current system does not perform validation on the peer's p2 packet.
+/// This is due to the complicated hmac verification.  While this verification was successful when
+/// tested agains OBS, Ffmpeg, Mplayer, and Evostream, but for some reason Flash clients would fail
+/// the hmac verification.
+///
+/// Due to the documentation on the fp9 handshake being third party, the hmac verification was
+/// removed.  It is now assumed that as long as the peer sent us a p2 packet, and they did not
+/// dicsonnect us after receiving our p2 packet, that the handshake was successful.  This has
+/// allowed us to succeed in handshaking with flash players, and there are still enough checks that
+/// it should be unlikely for too many false positives.
+///
+/// ## Examples
+///
+/// ```
+/// use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
+///
+/// let mut client = Handshake::new(PeerType::Client);
+/// let mut server = Handshake::new(PeerType::Server);
+///
+/// let c0_and_c1 = client.generate_outbound_p0_and_p1().unwrap();
+/// let s0_s1_and_s2 = match server.process_bytes(&c0_and_c1[..]) {
+///     Ok(HandshakeProcessResult::InProgress {response_bytes: bytes}) => bytes,
+///     x => panic!("Unexpected process_bytes response: {:?}", x),
+/// };
+///
+/// let c2 = match client.process_bytes(&s0_s1_and_s2[..]) {
+///     Ok(HandshakeProcessResult::Completed {
+///         response_bytes: bytes,
+///         remaining_bytes: _
+///     }) => bytes,
+///     x => panic!("Unexpected s0_s1_and_s2 process_bytes response: {:?}", x),
+/// };
+///
+/// match server.process_bytes(&c2[..]) {
+///     Ok(HandshakeProcessResult::Completed {
+///             response_bytes: _,
+///             remaining_bytes: _
+///         }) => {},
+///     x => panic!("Unexpected process_bytes response: {:?}", x),
+/// }
+/// ```
+///
 pub struct Handshake {
     current_stage: Stage,
     peer_type: PeerType,
@@ -86,11 +141,11 @@ pub struct Handshake {
 }
 
 impl Handshake {
-    /// Creates a new digest handshake instance.
+    /// Creates a new handshake handling instance.
     ///
-    /// The Flash Player 9 handshake requires generating
-    /// a different packet 1 depending if you are the client or the server, and thus this must
-    /// be specified when creating a new `Handshake` instance.
+    /// The Flash Player 9 handshake requires generating a different packet 1 depending if you
+    /// are the client or the server, and thus this must be specified when creating a new
+    /// `Handshake` instance.
     pub fn new(peer_type: PeerType) -> Handshake{
         Handshake {
             current_stage: Stage::NeedToSendP0AndP1,
@@ -152,9 +207,10 @@ impl Handshake {
     ///
     /// If the handshake is still in progress it will potentially return bytes that should be
     /// sent to the peer.  If the handshake has completed it will return any overflow bytes it
-    /// received that were not part of the handshaking process.
+    /// received that were not part of the handshaking process.  This overflow will most likely
+    /// contain RTMP chunks that need to be deserialized.
     ///
-    /// If the `HandshakeHandler` has not generated the outbound packets 0 and 1 yet, then
+    /// If the `Handshake` has not generated the outbound packets 0 and 1 yet, then
     /// the first call to `process_bytes` will include packets 0 and 1 in the `response_bytes`
     /// field.
     pub fn process_bytes(&mut self, data: &[u8]) -> Result<HandshakeProcessResult, HandshakeError> {
