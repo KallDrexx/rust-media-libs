@@ -1,10 +1,14 @@
 [package]
 name = "rml_amf0"
-version = "0.1.0"
-description = "Modules for handling the encoding and decoding of data with Adobe's Action Message Format 0(AMF0 data format."
+version = "0.1.1"
+description = "Modules for handling the encoding and decoding of data with Adobe's Action Message Format 0 (AMF0 data format)."
 authors = ["Matthew Shapiro <me@mshapiro.net>"]
 repository = "https://github.com/KallDrexx/rust-media-libs"
+documentation = "https://docs.rs/rml_amf0/"
 license = "MIT"
+categories = ["encoding", "parsing"]
+keywords = ["amf", "amf0"]
+readme = "README.md"
 
 [dependencies]
 byteorder = "1.2.1"
