@@ -814,6 +814,33 @@ fn publisher_can_send_audio_data() {
     }
 }
 
+#[test]
+fn can_stop_publishing() {
+    let config = ClientSessionConfig::new();
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let mut session = ClientSession::new(config.clone());
+    perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
+    let stream_id = perform_successful_publish_request(&mut session, &mut serializer, &mut deserializer);
+
+    let results = session.stop_publishing().unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, results);
+
+    assert_eq!(responses.len(), 1, "Unexpected number of responses");
+    match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, stream_id, "Unexpected message stream id");
+            assert_eq!(command_name, "deleteStream", "Unexpected command name");
+            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
+            assert_eq!(additional_arguments.len(), 1, "Unexpected number of additional arguments");
+            assert_eq!(additional_arguments[0], Amf0Value::Number(stream_id as f64), "Unexpected argument stream id");
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
+        },
+
+        x => panic!("Expected Amf0 command, instead received: {:?}", x),
+    }
+}
+
 fn split_results(deserializer: &mut ChunkDeserializer, mut results: Vec<ClientSessionResult>)
     -> (Vec<(MessagePayload, RtmpMessage)>, Vec<ClientSessionEvent>) {
     let mut responses = Vec::new();

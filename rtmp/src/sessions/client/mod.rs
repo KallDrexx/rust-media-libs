@@ -259,6 +259,32 @@ impl ClientSession {
         }
     }
 
+    pub fn stop_publishing(&mut self) -> ClientResult {
+        // Validate we are in a state to do this
+        match self.current_state {
+            ClientState::Publishing {..} => (),
+            ClientState::PublishRequested {..} => (),
+            _ => return Ok(Vec::new()), // Nothing to stop since we aren't performing playback
+        }
+
+        self.current_state = ClientState::Connected;
+        match mem::replace(&mut self.active_stream_id, None) {
+            None => Ok(Vec::new()), // Should never happen since we should always have a valid stream id
+            Some(stream_id) => {
+                let message = RtmpMessage::Amf0Command {
+                    command_name: "deleteStream".to_string(),
+                    transaction_id: 0.0, // always 0 per spec
+                    command_object: Amf0Value::Null,
+                    additional_arguments: vec![Amf0Value::Number(stream_id as f64)],
+                };
+
+                let payload = message.into_message_payload(self.get_epoch(), stream_id)?;
+                let packet = self.serializer.serialize(&payload, false, false)?;
+                Ok(vec![ClientSessionResult::OutboundResponse(packet)])
+            }
+        }
+    }
+
     pub fn send_ping_request(&mut self) -> Result<(Packet, RtmpTimestamp), ClientSessionError> {
         let current_epoch = self.get_epoch();
         let message = RtmpMessage::UserControl {
