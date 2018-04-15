@@ -8,6 +8,7 @@ https://docs.rs/rml_rtmp/
 ## Installation
 
 This crate works with Cargo and is on [crates.io](http://crates.io).  Add it to your `Cargo.toml` like so:
+
 ```toml
 [dependencies]
 rml_rtmp = "0.1"
