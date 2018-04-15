@@ -1,5 +1,6 @@
 //! This crate provides functionality for serializing and deserializing data
-//! based on the Adobe AMF0 encoding specification.  (http://wwwimages.adobe.com/content/dam/Adobe/en/devnet/amf/pdf/amf0-file-format-specification.pdf)
+//! based on the Adobe AMF0 encoding specification located at
+//! <https://wwwimages2.adobe.com/content/dam/acom/en/devnet/pdf/amf0-file-format-specification.pdf>
 //!
 //! # Examples
 //! ```
@@ -41,6 +42,7 @@ pub use errors::{Amf0DeserializationError, Amf0SerializationError};
 
 use std::collections::HashMap;
 
+/// An Enum representing the different supported types of Amf0 values
 #[derive(PartialEq, Debug, Clone)]
 pub enum Amf0Value {
     Number(f64),
