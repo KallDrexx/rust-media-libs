@@ -82,7 +82,7 @@ fn parse_bool<R: Read>(bytes: &mut R) -> Result<Amf0Value, Amf0DeserializationEr
 
 fn parse_string<R: Read>(bytes: &mut R) -> Result<Amf0Value, Amf0DeserializationError> {
     let length = bytes.read_u16::<BigEndian>()?;
-    let mut buffer: Vec<u8> = vec![0_u8; (length as usize)];
+    let mut buffer: Vec<u8> = vec![0_u8; length as usize];
     bytes.read(&mut buffer)?;
 
     let value = String::from_utf8(buffer)?;
@@ -131,7 +131,7 @@ fn parse_object_property<R: Read>(bytes: &mut R) -> Result<Option<ObjectProperty
         return Ok(None);
     }
 
-    let mut label_buffer = vec![0; (label_length as usize)];
+    let mut label_buffer = vec![0; label_length as usize];
     bytes.read(&mut label_buffer)?;
 
     let label = String::from_utf8(label_buffer)?;
