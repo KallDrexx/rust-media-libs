@@ -1,7 +1,7 @@
 [package]
 name = "rml_rtmp"
 description = "Rust library for handling aspects of the RTMP protocol."
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Matthew Shapiro <me@mshapiro.net>"]
 repository = "https://github.com/KallDrexx/rust-media-libs"
 license = "MIT"
