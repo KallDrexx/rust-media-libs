@@ -69,7 +69,8 @@ These higher level structs are meant to be integrated *AFTER* a successful hands
 extern crate byteorder;
 extern crate bytes;
 extern crate rand;
-extern crate ring;
+extern crate hmac;
+extern crate sha2;
 extern crate rml_amf0;
 
 #[cfg(test)]
