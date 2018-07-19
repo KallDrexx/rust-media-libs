@@ -24,9 +24,10 @@ no encryption is used.
 
 */
 
-pub mod errors;
+mod errors;
 
-use self::errors::{HandshakeError, HandshakeErrorKind};
+pub use self::errors::{HandshakeError, HandshakeErrorKind};
+
 use std::io::{Cursor};
 use byteorder::{BigEndian, ReadBytesExt};
 use rand;
