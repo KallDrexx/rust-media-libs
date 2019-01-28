@@ -131,6 +131,9 @@ impl ClientSession {
                         RtmpMessage::WindowAcknowledgement {size}
                             => self.handle_window_ack_size(size)?,
 
+                        RtmpMessage::SetChunkSize{size}
+                            => self.handle_set_chunk_size(size)?,
+
                         _ => vec![ClientSessionResult::UnhandleableMessageReceived(payload)],
                     };
 
@@ -800,6 +803,11 @@ impl ClientSession {
         let timestamp = timestamp.unwrap_or(RtmpTimestamp::new(0));
         let event = ClientSessionEvent::PingResponseReceived {timestamp};
         Ok(vec![ClientSessionResult::RaisedEvent(event)])
+    }
+
+    fn handle_set_chunk_size(&mut self, size: u32) -> ClientResult {
+        self.deserializer.set_max_chunk_size(size as usize)?;
+        Ok(Vec::new())
     }
 
     fn get_epoch(&self) -> RtmpTimestamp {

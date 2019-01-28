@@ -53,7 +53,7 @@ struct PullClient {
     state: PullState,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 enum PushState {
     Inactive,
     WaitingForConnection,
