@@ -65,7 +65,7 @@ These higher level structs are meant to be integrated *AFTER* a successful hands
 
 */
 
-#[macro_use] extern crate failure;
+extern crate failure;
 extern crate byteorder;
 extern crate bytes;
 extern crate rand;

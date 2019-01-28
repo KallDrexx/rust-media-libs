@@ -8,11 +8,24 @@ use messages::{MessagePayload, RtmpMessage,UserControlEventType};
 use bytes::BytesMut;
 
 #[test]
+fn new_session_creates_set_chunk_size_message() {
+    let mut config = ClientSessionConfig::new();
+    config.chunk_size = 1111;
+
+    let mut deserializer = ChunkDeserializer::new();
+    let (_, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
+    assert_eq!(deserializer.get_max_chunk_size(), 1111, "Incorrect deserializer default chunk size");
+}
+
+#[test]
 fn can_send_connect_request() {
     let app_name = "test".to_string();
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
 
     let results = session.request_connection(app_name.clone()).unwrap();
     let (mut responses, _) = split_results(&mut deserializer, vec![results]);
@@ -46,7 +59,8 @@ fn can_process_connect_success_response() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
 
     let results = session.request_connection(app_name.clone()).unwrap();
     consume_results(&mut deserializer, vec![results]);
@@ -68,7 +82,8 @@ fn event_raised_when_connect_request_rejected() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
 
     let results = session.request_connection(app_name.clone()).unwrap();
     consume_results(&mut deserializer, vec![results]);
@@ -93,7 +108,8 @@ fn error_thrown_when_connect_request_made_after_successful_connection() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
 
     let results = session.request_connection(app_name.clone()).unwrap();
     consume_results(&mut deserializer, vec![results]);
@@ -115,7 +131,8 @@ fn successful_connect_request_sends_window_ack_size() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
 
     let results = session.request_connection(app_name.clone()).unwrap();
     consume_results(&mut deserializer, vec![results]);
@@ -142,7 +159,9 @@ fn successful_play_request_workflow() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect(app_name.clone(), &mut session, &mut serializer, &mut deserializer);
 
     let result = session.request_playback(stream_key.clone()).unwrap();
@@ -207,7 +226,9 @@ fn active_play_session_raises_events_when_stream_metadata_changes() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
 
@@ -262,7 +283,9 @@ fn active_play_session_raises_events_when_video_data_received() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
 
@@ -289,7 +312,9 @@ fn active_play_session_raises_events_when_audio_data_received() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
 
@@ -318,7 +343,9 @@ fn can_receive_audio_data_prior_to_play_request_being_accepted() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect(app_name.clone(), &mut session, &mut serializer, &mut deserializer);
 
     let result = session.request_playback(stream_key.clone()).unwrap();
@@ -392,7 +419,9 @@ fn can_receive_video_data_prior_to_play_request_being_accepted() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect(app_name.clone(), &mut session, &mut serializer, &mut deserializer);
 
     let result = session.request_playback(stream_key.clone()).unwrap();
@@ -464,7 +493,9 @@ fn can_stop_playback() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
 
@@ -491,7 +522,9 @@ fn automatically_responds_to_ping_requests() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
 
     let message = RtmpMessage::UserControl {
@@ -522,7 +555,9 @@ fn event_raised_when_ping_response_received() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
 
     let message = RtmpMessage::UserControl {
@@ -552,7 +587,9 @@ fn can_send_ping_request() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
 
     let (packet, sent_timestamp) = session.send_ping_request().unwrap();
@@ -574,7 +611,9 @@ fn sends_ack_after_receiving_window_ack_bytes() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let _ = perform_successful_play_request(config, &mut session, &mut serializer, &mut deserializer);
 
@@ -626,7 +665,9 @@ fn event_raised_when_server_sends_an_acknowledgement() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
 
     let message = RtmpMessage::Acknowledgement {sequence_number: 1234};
@@ -651,7 +692,9 @@ fn successful_publish_request_workflow() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
 
     let result = session.request_publishing(stream_key.clone(), PublishRequestType::Live).unwrap();
@@ -705,7 +748,9 @@ fn publisher_can_send_metadata() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_publish_request(&mut session, &mut serializer, &mut deserializer);
 
@@ -769,7 +814,9 @@ fn publisher_can_send_video_data() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_publish_request(&mut session, &mut serializer, &mut deserializer);
 
@@ -794,7 +841,9 @@ fn publisher_can_send_audio_data() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_publish_request(&mut session, &mut serializer, &mut deserializer);
 
@@ -819,7 +868,9 @@ fn can_stop_publishing() {
     let config = ClientSessionConfig::new();
     let mut deserializer = ChunkDeserializer::new();
     let mut serializer = ChunkSerializer::new();
-    let mut session = ClientSession::new(config.clone());
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
     perform_successful_connect("test".to_string(), &mut session, &mut serializer, &mut deserializer);
     let stream_id = perform_successful_publish_request(&mut session, &mut serializer, &mut deserializer);
 

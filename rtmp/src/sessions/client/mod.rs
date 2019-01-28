@@ -66,8 +66,11 @@ pub struct ClientSession {
 
 impl ClientSession {
     /// Creates a new client session with the specified configuration
-    pub fn new(config: ClientSessionConfig) -> ClientSession {
-        let session = ClientSession {
+    ///
+    /// As part of the initial creation it automatically creates initial outbound RTMP messages,
+    /// such as setting the outbound chunk size
+    pub fn new(config: ClientSessionConfig) -> Result<(ClientSession, Vec<ClientSessionResult>), ClientSessionError> {
+        let mut session = ClientSession {
             start_time: SystemTime::now(),
             serializer: ChunkSerializer::new(),
             deserializer: ChunkDeserializer::new(),
@@ -82,7 +85,11 @@ impl ClientSession {
             config,
         };
 
-        session
+        let mut results = Vec::with_capacity(1);
+        let chunk_size_packet = session.serializer.set_max_chunk_size(session.config.chunk_size, RtmpTimestamp::new(0))?;
+        results.push(ClientSessionResult::OutboundResponse(chunk_size_packet));
+
+        Ok((session, results))
     }
 
     /// Takes in any number of bytes from the peer and processes them.  Any resulting responses or

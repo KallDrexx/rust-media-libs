@@ -186,6 +186,11 @@ impl ChunkDeserializer {
         Ok(())
     }
 
+    /// Returns the maximum size of any RTMP chunks that should be received
+    pub fn get_max_chunk_size(&self) -> usize {
+        self.max_chunk_size
+    }
+
     fn form_header(&mut self) -> Result<ParseStageResult, ChunkDeserializationError> {
         if self.buffer.len() < 1 {
             return Ok(ParseStageResult::NotEnoughBytes);

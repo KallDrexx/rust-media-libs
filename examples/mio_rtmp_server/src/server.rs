@@ -45,7 +45,7 @@ enum PullState {
 }
 
 struct PullClient {
-    session: ClientSession,
+    session: Option<ClientSession>,
     connection_id: usize,
     pull_app: String,
     pull_stream: String,
@@ -64,7 +64,7 @@ enum PushState {
 }
 
 struct PushClient {
-    session: ClientSession,
+    session: Option<ClientSession>,
     connection_id: Option<usize>,
     push_app: String,
     push_source_stream: String,
@@ -108,7 +108,7 @@ impl Server {
                     push_source_stream: options.source_stream.clone(),
                     push_target_stream: options.target_stream.clone(),
                     connection_id: None,
-                    session: ClientSession::new(ClientSessionConfig::new()),
+                    session: None,
                     state: PushState::Inactive,
                 })
             }
@@ -128,8 +128,6 @@ impl Server {
                                 app: String,
                                 stream: String,
                                 target_stream: String) {
-        let config = ClientSessionConfig::new();
-
         // Pre-create the target channel.
         self.channels
             .entry(target_stream.clone())
@@ -142,7 +140,7 @@ impl Server {
             });
 
         self.pull_client = Some(PullClient {
-            session: ClientSession::new(config),
+            session: None,
             pull_app: app,
             pull_stream: stream,
             pull_target_stream: target_stream,
@@ -175,22 +173,54 @@ impl Server {
 
         if pull_client_connection_id.as_ref().map_or(false, |id| *id == connection_id) {
             // These bytes were received by the current pull client
-            let session_results = match self.pull_client.as_mut().unwrap().session.handle_input(bytes) {
+
+            let mut initial_session_results = Vec::new();
+            if let Some(ref mut pull_client) = self.pull_client {
+                if pull_client.session.is_none() {
+                    let (session, session_results) = ClientSession::new(ClientSessionConfig::new()).unwrap();
+                    pull_client.session = Some(session);
+
+                    for result in session_results {
+                        initial_session_results.push(result);
+                    }
+                }
+            }
+
+            let session_results = match self.pull_client.as_mut().unwrap().session.as_mut().unwrap().handle_input(bytes) {
                 Ok(results) => results,
                 Err(error) => return Err(error.to_string()),
             };
 
+            if initial_session_results.len() > 0 {
+                self.handle_push_session_results(initial_session_results, &mut server_results);
+            }
+
             self.handle_pull_session_results(session_results, &mut server_results);
         } else if push_client_connection_id.as_ref().map_or(false, |id| *id == connection_id) {
             // These bytes were received by the current push client
+            let mut initial_session_results = Vec::new();
+
             let session_results = if let Some(ref mut push_client) = self.push_client {
-                match push_client.session.handle_input(bytes) {
+                if push_client.session.is_none() {
+                    let (session, session_results) = ClientSession::new(ClientSessionConfig::new()).unwrap();
+                    push_client.session = Some(session);
+
+                    for result in session_results {
+                        initial_session_results.push(result);
+                    }
+                }
+
+                match push_client.session.as_mut().unwrap().handle_input(bytes) {
                     Ok(results) => results,
                     Err(error) => return Err(error.to_string()),
                 }
             } else {
                 Vec::new()
             };
+
+            if initial_session_results.len() > 0 {
+                self.handle_push_session_results(initial_session_results, &mut server_results);
+            }
 
             self.handle_push_session_results(session_results, &mut server_results);
         } else {
@@ -646,11 +676,11 @@ impl Server {
                 if client.state == PushState::Pushing {
                     let result = match data_type {
                         ReceivedDataType::Video => {
-                            client.session.publish_video_data(data.clone(), timestamp.clone(), true)
+                            client.session.as_mut().unwrap().publish_video_data(data.clone(), timestamp.clone(), true)
                         },
 
                         ReceivedDataType::Audio => {
-                            client.session.publish_audio_data(data.clone(), timestamp.clone(), true)
+                            client.session.as_mut().unwrap().publish_audio_data(data.clone(), timestamp.clone(), true)
                         },
                     };
 
@@ -692,7 +722,6 @@ impl Server {
     fn handle_pull_session_results(&mut self,
                                    session_results: Vec<ClientSessionResult>,
                                    server_results: &mut Vec<ServerResult>) {
-
         let mut new_results = Vec::new();
         let mut events = Vec::new();
         if let Some(ref mut client) = self.pull_client {
@@ -718,7 +747,8 @@ impl Server {
                     // Since this was called we know we are no longer handshaking, so we need to
                     // initiate the connect to the RTMP app
                     client.state = PullState::Connecting;
-                    let result = client.session.request_connection(client.pull_app.clone())
+
+                    let result = client.session.as_mut().unwrap().request_connection(client.pull_app.clone())
                         .unwrap();
                     new_results.push(result);
                 },
@@ -764,7 +794,7 @@ impl Server {
             println!("Pull accepted for app '{}'", client.pull_app);
             client.state = PullState::Connected;
 
-            let result = client.session.request_playback(client.pull_stream.clone()).unwrap();
+            let result = client.session.as_mut().unwrap().request_playback(client.pull_stream.clone()).unwrap();
             let mut results = vec![result];
             new_results.append(&mut results);
         }
@@ -833,7 +863,8 @@ impl Server {
                     // Since we got here we know handshaking was successful, so we need
                     // to initiate the connection process
                     client.state = PushState::Connecting;
-                    let result = match client.session.request_connection(client.push_app.clone()) {
+
+                    let result = match client.session.as_mut().unwrap().request_connection(client.push_app.clone()) {
                         Ok(result) => result,
                         Err(error) => {
                             println!("Failed to request connection for push client: {:?}", error);
@@ -872,7 +903,7 @@ impl Server {
             println!("push accepted for app '{}'", client.push_app);
             client.state = PushState::Connected;
 
-            let result = client.session
+            let result = client.session.as_mut().unwrap()
                 .request_publishing(client.push_target_stream.clone(), PublishRequestType::Live)
                 .unwrap();
 
@@ -894,19 +925,19 @@ impl Server {
             // Send out any metadata or header information if we have any
             if let Some(ref channel) = self.channels.get(&client.push_source_stream) {
                 if let Some(ref metadata) = channel.metadata {
-                    let result = client.session.publish_metadata(&metadata).unwrap();
+                    let result = client.session.as_mut().unwrap().publish_metadata(&metadata).unwrap();
                     new_results.push(result);
                 }
 
                 if let Some(ref bytes) = channel.video_sequence_header {
-                    let result = client.session.publish_video_data(bytes.clone(), RtmpTimestamp::new(0), false)
+                    let result = client.session.as_mut().unwrap().publish_video_data(bytes.clone(), RtmpTimestamp::new(0), false)
                         .unwrap();
 
                     new_results.push(result);
                 }
 
                 if let Some(ref bytes) = channel.audio_sequence_header {
-                    let result = client.session.publish_audio_data(bytes.clone(), RtmpTimestamp::new(0), false)
+                    let result = client.session.as_mut().unwrap().publish_audio_data(bytes.clone(), RtmpTimestamp::new(0), false)
                         .unwrap();
 
                     new_results.push(result);
