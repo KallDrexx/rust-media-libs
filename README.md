@@ -1,6 +1,9 @@
 # rust-media-libs
 Rust based libraries for misc media functionality
 
+## License
+This project is distributed under the terms of both MIT license and the Apache License (Version 2.0).
+
 ## Libraries
 There are currently 2 supported libraries in this project:
 
