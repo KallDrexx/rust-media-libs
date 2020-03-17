@@ -64,7 +64,7 @@ impl MessagePayload {
             17 => {
                 // Fake amf3 commands usually seem to have a 0 in front of the amf0 data.
                 if self.data.len() > 0 && self.data[0] == 0x00 {
-                    let slice = self.data.slice_from(1);
+                    let slice = self.data.slice(1..);
                     types::amf0_command::deserialize(slice)
                 } else {
                     types::amf0_command::deserialize(self.data.clone())
@@ -404,7 +404,7 @@ mod tests {
         payload.type_id = 17;
 
         let mut new_data = BytesMut::with_capacity(payload.data.len() + 1);
-        new_data.put(0 as u8);
+        new_data.put_u8(0);
         new_data.extend_from_slice(&payload.data);
         payload.data = new_data.freeze();
 

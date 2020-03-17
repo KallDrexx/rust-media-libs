@@ -12,7 +12,7 @@ keywords = ["rtmp", "video", "streaming"]
 [dependencies]
 rml_amf0 = "0.1.1"
 byteorder = "1.2.1"
-bytes = "0.4"
+bytes = "0.5"
 rand = "0.3"
 failure = "0.1.1"
 hmac = "0.6.2"
