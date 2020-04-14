@@ -42,7 +42,6 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
             Ok(stream) => {
                 let mut connection = Connection::new(stream);
                 let id = connections.insert(connection);
-                connection.connection_id = Some(id);
                 connection_ids.insert(id);
 
                 println!("Connection {} started", id);

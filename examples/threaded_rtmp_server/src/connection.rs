@@ -31,7 +31,6 @@ impl From<io::Error> for ConnectionError {
 }
 
 pub struct Connection {
-    pub connection_id: Option<usize>,
     writer: Sender<Vec<u8>>,
     reader: Receiver<ReadResult>,
     handshake: Handshake,
@@ -47,7 +46,6 @@ impl Connection {
         start_result_reader(result_sender, &socket);
 
         Connection {
-            connection_id: None,
             writer: byte_sender,
             reader: result_receiver,
             handshake: Handshake::new(PeerType::Server),
