@@ -166,7 +166,7 @@ impl ChunkSerializer {
     }
 }
 
-fn add_basic_header(bytes: &mut Write, format: &ChunkHeaderFormat, csid: u32) -> Result<(), ChunkSerializationError> {
+fn add_basic_header(bytes: &mut dyn Write, format: &ChunkHeaderFormat, csid: u32) -> Result<(), ChunkSerializationError> {
     if csid <= 1 || csid >= 65600 {
         panic!("Attempted to serialize an RTMP chunk with a csid of {}, but only csids between 2 and 65600 are allowed", csid);
     }
@@ -217,7 +217,7 @@ fn add_message_length_and_type_id(bytes: &mut Cursor<Vec<u8>>, format: &ChunkHea
     Ok(())
 }
 
-fn add_message_stream_id(bytes: &mut Write, format: &ChunkHeaderFormat, stream_id: u32) -> Result<(), ChunkSerializationError> {
+fn add_message_stream_id(bytes: &mut dyn Write, format: &ChunkHeaderFormat, stream_id: u32) -> Result<(), ChunkSerializationError> {
     if *format != ChunkHeaderFormat::Full {
         return Ok(());
     }
@@ -226,7 +226,7 @@ fn add_message_stream_id(bytes: &mut Write, format: &ChunkHeaderFormat, stream_i
     Ok(())
 }
 
-fn add_extended_timestamp(bytes: &mut Write, format: &ChunkHeaderFormat, header: &ChunkHeader) -> Result<(), ChunkSerializationError> {
+fn add_extended_timestamp(bytes: &mut dyn Write, format: &ChunkHeaderFormat, header: &ChunkHeader) -> Result<(), ChunkSerializationError> {
     if *format == ChunkHeaderFormat::Empty {
         return Ok(());
     }
@@ -244,7 +244,7 @@ fn add_extended_timestamp(bytes: &mut Write, format: &ChunkHeaderFormat, header:
     Ok(())
 }
 
-fn add_message_payload(bytes: &mut Write, data: &[u8]) -> Result<(), ChunkSerializationError> {
+fn add_message_payload(bytes: &mut dyn Write, data: &[u8]) -> Result<(), ChunkSerializationError> {
     bytes.write(data)?;
     Ok(())
 }

@@ -71,7 +71,7 @@ fn main() {
 
         let addr = SocketAddr::from_str(&pull_host).unwrap();
         let stream = TcpStream::connect(&addr).unwrap();
-        let mut connection = Connection::new(stream, connection_count, app_options.log_io, false);
+        let connection = Connection::new(stream, connection_count, app_options.log_io, false);
         let token = connections.insert(connection);
         connection_count += 1;
 
@@ -99,7 +99,7 @@ fn main() {
             match event.token() {
                 SERVER => {
                     let (socket, _) = listener.accept().unwrap();
-                    let mut connection = Connection::new(socket, connection_count, app_options.log_io, true);
+                    let connection = Connection::new(socket, connection_count, app_options.log_io, true);
                     let token = connections.insert(connection);
 
                     connection_count += 1;
@@ -288,7 +288,7 @@ fn handle_read_bytes(bytes: &[u8],
 
                     let addr = SocketAddr::from_str(&push_host).unwrap();
                     let stream = TcpStream::connect(&addr).unwrap();
-                    let mut connection = Connection::new(stream, *connection_count, app_options.log_io, false);
+                    let connection = Connection::new(stream, *connection_count, app_options.log_io, false);
                     let token = connections.insert(connection);
                     *connection_count += 1;
 

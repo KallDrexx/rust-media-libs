@@ -215,7 +215,7 @@ impl ChunkDeserializer {
             }
         };
 
-        self.buffer.split_to(next_index as usize);
+        let _ = self.buffer.split_to(next_index as usize);
         self.current_stage = ParseStage::InitialTimestamp;
         Ok(ParseStageResult::Success)
     }
@@ -293,7 +293,7 @@ impl ChunkDeserializer {
         }
 
         self.current_header.message_type_id = self.buffer[0];
-        self.buffer.split_to(1);
+        let _ = self.buffer.split_to(1);
         self.current_stage = ParseStage::MessageStreamId;
         Ok(ParseStageResult::Success)
     }

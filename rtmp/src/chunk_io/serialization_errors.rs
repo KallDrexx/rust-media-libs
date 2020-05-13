@@ -46,7 +46,7 @@ impl fmt::Display for ChunkSerializationError {
 }
 
 impl Fail for ChunkSerializationError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.kind.cause()
     }
 

@@ -33,7 +33,7 @@ impl fmt::Display for MessageSerializationError {
 }
 
 impl Fail for MessageSerializationError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.kind.cause()
     }
 

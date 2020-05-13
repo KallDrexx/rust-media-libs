@@ -41,7 +41,7 @@ impl fmt::Display for ChunkDeserializationError {
 }
 
 impl Fail for ChunkDeserializationError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.kind.cause()
     }
 
