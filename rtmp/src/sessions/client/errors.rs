@@ -72,8 +72,8 @@ impl fmt::Display for ClientSessionError {
 }
 
 impl Fail for ClientSessionError {
-    fn cause(&self) -> Option<&Fail> {
-        self.kind.cause()
+    fn cause(&self) -> Option<&dyn Fail> {
+       self.kind.cause()
     }
 
     fn backtrace(&self) -> Option<&Backtrace> {

@@ -62,7 +62,7 @@ impl fmt::Display for HandshakeError {
 }
 
 impl Fail for HandshakeError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.kind.cause()
     }
 

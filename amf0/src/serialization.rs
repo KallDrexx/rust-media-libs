@@ -163,7 +163,7 @@ mod tests {
         expected.extend("test".as_bytes());
         expected.push(markers::NUMBER_MARKER);
         expected.write_f64::<BigEndian>(NUMBER).unwrap();
-        expected.write_u16::<BigEndian>(markers::UTF_8_EMPTY_MARKER).unwrap();;
+        expected.write_u16::<BigEndian>(markers::UTF_8_EMPTY_MARKER).unwrap();
         expected.push(markers::OBJECT_END_MARKER);
 
         assert_eq!(result, expected);

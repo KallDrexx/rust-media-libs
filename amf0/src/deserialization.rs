@@ -165,7 +165,7 @@ mod tests {
         vector.write_f64::<BigEndian>(number).unwrap();
 
         let mut input = Cursor::new(vector);
-        let result = deserialize(&mut input).unwrap();;
+        let result = deserialize(&mut input).unwrap();
 
         let expected = vec![Amf0Value::Number(number)];
         assert_eq!(result, expected);
@@ -235,7 +235,7 @@ mod tests {
         vector.extend("test".as_bytes());
         vector.push(markers::NUMBER_MARKER);
         vector.write_f64::<BigEndian>(NUMBER).unwrap();
-        vector.write_u16::<BigEndian>(markers::UTF_8_EMPTY_MARKER).unwrap();;
+        vector.write_u16::<BigEndian>(markers::UTF_8_EMPTY_MARKER).unwrap();
         vector.push(markers::OBJECT_END_MARKER);
 
         let mut input = Cursor::new(vector);
