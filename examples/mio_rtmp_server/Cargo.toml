@@ -5,8 +5,8 @@ authors = ["Matthew Shapiro <me@mshapiro.net>"]
 description = "Simple RTMP server utilizing mio"
 
 [dependencies]
-mio = "0.6.13"
-slab = "0.4.0"
+mio = "0.6.23"
+slab = "0.4.2"
 bytes = "1"
 rml_rtmp = { path = "../../rtmp" }
-clap = {version = "2.31", features = ["yaml"]}
+clap = {version = "2.33", features = ["yaml"]}

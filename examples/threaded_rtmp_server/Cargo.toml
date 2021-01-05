@@ -5,6 +5,6 @@ authors = ["Matthew Shapiro <me@mshapiro.net>"]
 description = "Simple RTMP server utilizing threaded socket communication"
 
 [dependencies]
-slab = "0.4.0"
+slab = "0.4.2"
 bytes = "1"
 rml_rtmp = { path = "../../rtmp" }
