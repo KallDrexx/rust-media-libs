@@ -33,7 +33,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use rand;
 use rand::Rng;
 use sha2::Sha256;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, NewMac};
 
 const RTMP_PACKET_SIZE: usize = 1536;
 const SHA256_DIGEST_LENGTH : usize = 32;
@@ -464,10 +464,10 @@ fn calc_hmac_from_parts(part1: &[u8], part2: &[u8], key: &[u8]) -> [u8; SHA256_D
 
 fn calc_hmac(input: &[u8], key: &[u8]) -> [u8; SHA256_DIGEST_LENGTH] {
     let mut mac = Hmac::<Sha256>::new_varkey(key).unwrap();
-    mac.input(input);
+    mac.update(input);
 
-    let result = mac.result();
-    let array = result.code();
+    let result = mac.finalize();
+    let array = result.into_bytes();
 
     if array.len() != 32 {
         panic!("Expected hmac signature to be 32 byte array, instead it was a {} byte array", array.len());
@@ -679,12 +679,12 @@ mod tests {
     #[test]
     fn hmac_test3() {
         let mut mac = Hmac::<Sha256>::new_varkey(&[0x0b; 20]).unwrap();
-        mac.input(b"Hi There");
+        mac.update(b"Hi There");
 
         let expected = [176_u8, 52_u8, 76_u8, 97_u8, 216_u8, 219_u8, 56_u8, 83_u8, 92_u8, 168_u8, 175_u8, 206_u8, 175_u8, 11_u8, 241_u8, 43_u8, 136_u8, 29_u8, 194_u8, 0_u8, 201_u8, 131_u8, 61_u8, 167_u8, 38_u8, 233_u8, 55_u8, 108_u8, 46_u8, 50_u8, 207_u8, 247_u8];
 
-        let result = mac.result();
-        let code_bytes = result.code();
+        let result = mac.finalize();
+        let code_bytes = result.into_bytes();
         assert_eq!(&expected[..], &code_bytes[..]);
     }
 
