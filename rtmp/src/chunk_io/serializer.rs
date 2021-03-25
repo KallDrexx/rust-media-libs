@@ -575,6 +575,13 @@ mod tests {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
             message_stream_id: 12,
+            data: Bytes::from(payload.clone()),
+        };
+
+        let message2 = MessagePayload {
+            timestamp: RtmpTimestamp::new(73),
+            type_id: 50,
+            message_stream_id: 12,
             data: Bytes::from(payload),
         };
 
@@ -599,6 +606,22 @@ mod tests {
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 25, "Unexpected 2nd payload bytes read");
         assert_eq!(&payload_bytes[..bytes_read], &([22_u8; 25])[..], "Unexpected 2nd payload contents");
+
+        let packet = serializer.serialize(&message2, false, false).unwrap();
+        let mut cursor = Cursor::new(packet.bytes);
+        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b10000000, "Unexpected csid value");
+        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 1, "Unexpected timestamp value");
+
+        let mut payload_bytes = [0_u8; 75];
+        let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
+        assert_eq!(bytes_read, 75, "Unexpected payload bytes read");
+        assert_eq!(&payload_bytes[..bytes_read], &([11_u8; 75])[..], "Unexpected payload contents");
+
+        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b11000000, "Unexpected chunk format");
+        let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
+        assert_eq!(bytes_read, 25, "Unexpected 2nd payload bytes read");
+        assert_eq!(&payload_bytes[..bytes_read], &([22_u8; 25])[..], "Unexpected 2nd payload contents");
+
     }
 
     #[test]
