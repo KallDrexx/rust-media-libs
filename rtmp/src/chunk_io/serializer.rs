@@ -111,8 +111,8 @@ impl ChunkSerializer {
             iteration = iteration + 1;
         }
 
-        for slice in slices.into_iter() {
-            self.add_chunk(&mut bytes, force_uncompressed, message, slice, can_be_dropped)?;
+        for (idx, slice) in slices.into_iter().enumerate() {
+            self.add_chunk(&mut bytes, force_uncompressed, message, idx > 0, slice, can_be_dropped)?;
         }
 
         Ok(Packet {
@@ -121,7 +121,7 @@ impl ChunkSerializer {
         })
     }
 
-    fn add_chunk(&mut self, bytes: &mut Cursor<Vec<u8>>,  force_uncompressed: bool, message: &MessagePayload, data_to_write: &[u8], can_be_dropped: bool) -> Result<(), ChunkSerializationError> {
+    fn add_chunk(&mut self, bytes: &mut Cursor<Vec<u8>>,force_uncompressed: bool, message: &MessagePayload, continued_chunk: bool, data_to_write: &[u8], can_be_dropped: bool) -> Result<(), ChunkSerializationError> {
         let mut header = ChunkHeader {
             chunk_stream_id: get_csid_for_message_type(message.type_id),
             timestamp: message.timestamp,
@@ -134,6 +134,11 @@ impl ChunkSerializer {
 
         let header_format = if force_uncompressed {
             ChunkHeaderFormat::Full
+        } else if continued_chunk {
+            //  https://github.com/melpon/rfc/blob/master/rtmp.md#53124-type-3
+            //  Continued chunks should use Format Type 3.
+            //  Streaming into Twitch was breaking when a payload exceeded the max chunk size
+            ChunkHeaderFormat::Empty
         } else {
             match self.previous_headers.get(&header.chunk_stream_id) {
                 None => ChunkHeaderFormat::Full,
