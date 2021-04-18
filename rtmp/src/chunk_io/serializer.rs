@@ -232,12 +232,19 @@ fn add_message_stream_id(bytes: &mut dyn Write, format: &ChunkHeaderFormat, stre
 }
 
 fn add_extended_timestamp(bytes: &mut dyn Write, format: &ChunkHeaderFormat, header: &ChunkHeader) -> Result<(), ChunkSerializationError> {
-    if *format == ChunkHeaderFormat::Empty {
-        return Ok(());
-    }
+    //if *format == ChunkHeaderFormat::Empty {
+    //    return Ok(());
+    //}
 
     let timestamp = match *format {
         ChunkHeaderFormat::Full => header.timestamp.value,
+        ChunkHeaderFormat::Empty => {
+            if header.timestamp_delta == 0 {
+                header.timestamp.value
+            } else {
+                header.timestamp_delta
+            }
+        }
         _ => header.timestamp_delta
     };
 
