@@ -667,7 +667,7 @@ mod tests {
         let chunk_0_bytes = form_type_0_chunk(csid, timestamp, message_stream_id, type_id1, &payload, INITIAL_MAX_CHUNK_SIZE);
         let chunk_1_bytes = form_type_1_chunk(csid, delta1, type_id2, &payload);
         let chunk_2_bytes = form_type_2_chunk(csid, delta2, &payload);
-        let chunk_3_bytes = form_type_3_chunk(csid, &payload, INITIAL_MAX_CHUNK_SIZE);
+        let chunk_3_bytes = form_type_3_chunk(csid, &payload, INITIAL_MAX_CHUNK_SIZE, None);
         let mut deserializer = ChunkDeserializer::new();
         let _ = deserializer.get_next_message(&chunk_0_bytes).unwrap().unwrap();
         let _ = deserializer.get_next_message(&chunk_1_bytes).unwrap().unwrap();
@@ -693,7 +693,7 @@ mod tests {
         let chunk_0_bytes = form_type_0_chunk(csid, timestamp, message_stream_id, type_id1, &payload, INITIAL_MAX_CHUNK_SIZE);
         let chunk_1_bytes = form_type_1_chunk(csid, delta1, type_id2, &payload);
         let chunk_2_bytes = form_type_2_chunk(csid, delta2, &payload);
-        let chunk_3_bytes = form_type_3_chunk(csid, &payload, INITIAL_MAX_CHUNK_SIZE);
+        let chunk_3_bytes = form_type_3_chunk(csid, &payload, INITIAL_MAX_CHUNK_SIZE, Some(delta2));
         let mut deserializer = ChunkDeserializer::new();
         let _ = deserializer.get_next_message(&chunk_0_bytes).unwrap().unwrap();
         let _ = deserializer.get_next_message(&chunk_1_bytes).unwrap().unwrap();
@@ -801,8 +801,10 @@ mod tests {
         cursor.write_u8(type_id).unwrap();
         cursor.write_u32::<LittleEndian>(message_stream_id).unwrap();
 
+        let mut option_extended_timestamp = None;
         if timestamp > 16777215 {
             cursor.write_u32::<BigEndian>(timestamp).unwrap();
+            option_extended_timestamp = Some(timestamp);
         }
 
         // If the payload is over max_chunk_length, assume we want to form a split message
@@ -811,7 +813,8 @@ mod tests {
         if payload.len() > max_chunk_length {
             cursor.write(&payload[..max_chunk_length]).unwrap();
 
-            let next_chunk = form_type_3_chunk(csid, &payload[max_chunk_length..], max_chunk_length);
+
+            let next_chunk = form_type_3_chunk(csid, &payload[max_chunk_length..], max_chunk_length, option_extended_timestamp);
             cursor.write(&next_chunk).unwrap();
         } else {
             cursor.write(payload).unwrap();
@@ -870,7 +873,7 @@ mod tests {
         cursor.into_inner()
     }
 
-    fn form_type_3_chunk(csid: u32, payload: &[u8], max_chunk_length: usize) -> Vec<u8> {
+    fn form_type_3_chunk(csid: u32, payload: &[u8], max_chunk_length: usize, option_extended_timestamp: Option<u32>) -> Vec<u8> {
         let mut cursor = Cursor::new(Vec::new());
         if csid < 64 {
             cursor.write_u8((csid as u8) | 0b11000000).unwrap();
@@ -882,13 +885,18 @@ mod tests {
             cursor.write_u16::<BigEndian>((csid - 64) as u16).unwrap();
         }
 
+        if option_extended_timestamp != None {
+            assert_eq!(option_extended_timestamp.unwrap() >= MAX_INITIAL_TIMESTAMP, true, "timestamp was less than 0xffffff");
+            cursor.write_u32::<BigEndian>(option_extended_timestamp.unwrap()).unwrap();
+        }
+
         // If the payload is over max_chunk_length, assume we want to form a split message
         // and therefore need to only write the max chunk amount of the payload in this request
         // and append a type 3 chunk with the rest
         if payload.len() > max_chunk_length {
             cursor.write(&payload[..max_chunk_length]).unwrap();
 
-            let next_chunk = form_type_3_chunk(csid, &payload[max_chunk_length..], max_chunk_length);
+            let next_chunk = form_type_3_chunk(csid, &payload[max_chunk_length..], max_chunk_length, option_extended_timestamp);
             cursor.write(&next_chunk).unwrap();
         } else {
             cursor.write(payload).unwrap();
