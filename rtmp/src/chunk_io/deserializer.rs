@@ -322,10 +322,33 @@ impl ChunkDeserializer {
 
     fn get_extended_timestamp(&mut self) -> Result<ParseStageResult, ChunkDeserializationError> {
         if self.current_header_format == ChunkHeaderFormat::Empty {
-            // Since this header does not have a timestamp, it uses the previously used delta.
-            // However, since we don't need to deal with reading any more bytes we have already
-            // added the delta to the timestamp in the initial timestamp phase, so we don't need
-            // to do anything here
+            let ext = (self.current_header.timestamp >= MAX_INITIAL_TIMESTAMP && self.current_header.timestamp_delta == 0) || self.current_header.timestamp_delta >= MAX_INITIAL_TIMESTAMP;
+            if !ext {
+                self.current_stage = ParseStage::MessagePayload;
+                return Ok(ParseStageResult::Success);
+            }
+
+            if self.buffer.len() < 4 {
+                return Ok(ParseStageResult::NotEnoughBytes);
+            }
+
+            let timestamp;
+            {
+                let bytes = self.buffer.split_to(4);
+                let mut cursor = Cursor::new(bytes);
+                timestamp = cursor.read_u32::<BigEndian>()?;
+            }
+
+            if self.current_header.timestamp >= MAX_INITIAL_TIMESTAMP && self.current_header.timestamp_delta == 0 {
+                //absolute timstamp
+                self.current_header.timestamp.set(timestamp);
+
+            } else {
+                let old_timestamp_delta = self.current_header.timestamp_delta;
+                self.current_header.timestamp_delta = timestamp;
+                self.current_header.timestamp = (self.current_header.timestamp - old_timestamp_delta) + self.current_header.timestamp_delta;
+            }
+
             self.current_stage = ParseStage::MessagePayload;
             return Ok(ParseStageResult::Success);
         }
