@@ -230,7 +230,7 @@ impl ChunkDeserializer {
                 // Since we don't have any payload data yet, that means this is the first
                 // chunk of the message.  As it's the first chunk this is the only time we should
                 // apply the previous header's delta to the timestamp
-                self.current_header.timestamp = self.current_header.timestamp + self.current_header.timestamp_delta;
+                self.current_header.timestamp = self.current_header.timestamp + self.current_header.timestamp_field;
             }
 
             self.current_stage = ParseStage::MessageLength;
@@ -250,11 +250,14 @@ impl ChunkDeserializer {
 
         if self.current_header_format == ChunkHeaderFormat::Full {
             self.current_header.timestamp.set(timestamp);
+
         } else {
             // Non full headers are deltas only
             self.current_header.timestamp = self.current_header.timestamp + timestamp;
-            self.current_header.timestamp_delta = timestamp;
         }
+
+        //apply the timestamp field
+        self.current_header.timestamp_field = timestamp;
 
         self.current_stage = ParseStage::MessageLength;
         Ok(ParseStageResult::Success)
@@ -321,49 +324,12 @@ impl ChunkDeserializer {
     }
 
     fn get_extended_timestamp(&mut self) -> Result<ParseStageResult, ChunkDeserializationError> {
-        if self.current_header_format == ChunkHeaderFormat::Empty {
-            let ext = (self.current_header.timestamp >= MAX_INITIAL_TIMESTAMP && self.current_header.timestamp_delta == 0) || self.current_header.timestamp_delta >= MAX_INITIAL_TIMESTAMP;
-            if !ext {
-                self.current_stage = ParseStage::MessagePayload;
-                return Ok(ParseStageResult::Success);
-            }
-
-            if self.buffer.len() < 4 {
-                return Ok(ParseStageResult::NotEnoughBytes);
-            }
-
-            let timestamp;
-            {
-                let bytes = self.buffer.split_to(4);
-                let mut cursor = Cursor::new(bytes);
-                timestamp = cursor.read_u32::<BigEndian>()?;
-            }
-
-            if self.current_header.timestamp >= MAX_INITIAL_TIMESTAMP && self.current_header.timestamp_delta == 0 {
-                //absolute timstamp
-                self.current_header.timestamp.set(timestamp);
-
-            } else {
-                let old_timestamp_delta = self.current_header.timestamp_delta;
-                self.current_header.timestamp_delta = timestamp;
-                self.current_header.timestamp = (self.current_header.timestamp - old_timestamp_delta) + self.current_header.timestamp_delta;
-            }
-
+        if self.current_header.timestamp_field < MAX_INITIAL_TIMESTAMP {
             self.current_stage = ParseStage::MessagePayload;
             return Ok(ParseStageResult::Success);
         }
 
-        if self.current_header_format == ChunkHeaderFormat::Full && self.current_header.timestamp < MAX_INITIAL_TIMESTAMP {
-            self.current_stage = ParseStage::MessagePayload;
-            return Ok(ParseStageResult::Success);
-        }
-
-        if self.current_header_format != ChunkHeaderFormat::Full && self.current_header.timestamp_delta < MAX_INITIAL_TIMESTAMP {
-            self.current_stage = ParseStage::MessagePayload;
-            return Ok(ParseStageResult::Success);
-        }
-
-        if self.current_header_format != ChunkHeaderFormat::Empty && self.buffer.len() < 4 {
+        if self.buffer.len() < 4 {
             return Ok(ParseStageResult::NotEnoughBytes);
         }
 
@@ -374,14 +340,14 @@ impl ChunkDeserializer {
             timestamp = cursor.read_u32::<BigEndian>()?;
         }
 
+        // If the type 3 chunk is not the first chunk of a message, we just ignore it's extended timestamp because the timestamp of this message was already deserialized.
         if self.current_header_format == ChunkHeaderFormat::Full {
             self.current_header.timestamp.set(timestamp);
-        } else {
-            self.current_header.timestamp_delta = timestamp;
 
+        } else if self.current_payload_data.len() == 0 {
             // Since we already added the MAX_INITIAL_TIMESTAMP to the timestamp, only add the delta difference
-            self.current_header.timestamp = self.current_header.timestamp + (self.current_header.timestamp_delta - MAX_INITIAL_TIMESTAMP);
-        }
+            self.current_header.timestamp = self.current_header.timestamp + (timestamp - MAX_INITIAL_TIMESTAMP);
+        } 
 
         self.current_stage = ParseStage::MessagePayload;
         Ok(ParseStageResult::Success)
@@ -781,6 +747,19 @@ mod tests {
         assert_eq!(payload2.type_id, 0x09, "Incorrect payload 2 type");
         assert_eq!(payload2.timestamp, RtmpTimestamp::new(33), "Incorrect payload 2 timestamp");
         assert_eq!(&payload2.data[..], &[0x01, 0x02, 0x03, 0x04, 0x05], "Incorrect payload 2 data");
+    }
+
+    #[test]
+    fn can_read_type_3_chunk_that_follows_type_0_has_extended_timestamp() {
+        let chunk1 = [0x06, 0xff, 0xff, 0xff, 0x00, 0x00, 0x07, 0x09, 0x01, 0x00, 0x00, 0x00, 0x01, 0xff, 0xff, 0xff, 0x01, 0x02, 0x03, 0x04];
+        let chunk2 = [0xc6, 0x01, 0xff, 0xff, 0xff, 0x05, 0x06, 0x07];
+        let mut deserializer = ChunkDeserializer::new();
+        deserializer.set_max_chunk_size(4).unwrap();
+        let _ = deserializer.get_next_message(&chunk1).unwrap();
+        let payload = deserializer.get_next_message(&chunk2).unwrap().unwrap();
+        assert_eq!(payload.type_id, 0x09, "Incorrect payload type");
+        assert_eq!(payload.timestamp, RtmpTimestamp::new(0x1ffffff), "Incorrect payload timestamp");
+        assert_eq!(&payload.data[..], &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07], "Incorrect payload data");
     }
 
     fn form_type_0_chunk(csid: u32, timestamp: u32, message_stream_id: u32, type_id: u8, payload: &[u8], max_chunk_length: usize) -> Vec<u8> {
