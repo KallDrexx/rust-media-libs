@@ -125,45 +125,52 @@ impl ChunkSerializer {
         let mut header = ChunkHeader {
             chunk_stream_id: get_csid_for_message_type(message.type_id),
             timestamp: message.timestamp,
-            timestamp_delta: 0,
+            timestamp_field: 0,
             message_type_id: message.type_id,
             message_stream_id: message.message_stream_id,
             message_length: message.data.len() as u32,
             can_be_dropped,
         };
 
+
         let header_format = if force_uncompressed {
             ChunkHeaderFormat::Full
-        } else if continued_chunk {
-            //  https://github.com/melpon/rfc/blob/master/rtmp.md#53124-type-3
-            //  Continued chunks should use Format Type 3.
-            //  Streaming into Twitch was breaking when a payload exceeded the max chunk size
-            ChunkHeaderFormat::Empty
         } else {
             match self.previous_headers.get(&header.chunk_stream_id) {
                 None => ChunkHeaderFormat::Full,
                 Some(ref previous_header) => {
-                    // If the previous packet was able to be dropped, we don't know if it was (or will be)
-                    // therefore the next packet must be a type 0 chunk as a precaution.  Otherwise
-                    // we risk the peer not being able to deserialize this packet.
-                    if previous_header.can_be_dropped {
+                    if continued_chunk { 
+                        //  https://github.com/melpon/rfc/blob/master/rtmp.md#53124-type-3
+                        //  Continued chunks should use Format Type 3.
+                        //  Streaming into Twitch was breaking when a payload exceeded the max chunk size
+                        //  Continued chunks may add extended timestamp, set timestamp field as previous timestamp_field
+                        header.timestamp_field = (header.timestamp - previous_header.timestamp).value;
+                        ChunkHeaderFormat::Empty
+
+                    } else if previous_header.can_be_dropped {
+                        // If the previous packet was able to be dropped, we don't know if it was (or will be)
+                        // therefore the next packet must be a type 0 chunk as a precaution.  Otherwise
+                        // we risk the peer not being able to deserialize this packet.
                         ChunkHeaderFormat::Full
+
                     } else {
                         // TODO: Update to support rtmp time wrap-around
-                        let time_delta = header.timestamp - previous_header.timestamp;
-                        header.timestamp_delta = time_delta.value;
-
+                        header.timestamp_field = (header.timestamp - previous_header.timestamp).value;
                         get_header_format(&mut header, previous_header)
                     }
                 },
             }
         };
 
+        if header_format == ChunkHeaderFormat::Full {
+            header.timestamp_field = header.timestamp.value;
+        } 
+
         add_basic_header(bytes, &header_format, header.chunk_stream_id)?;
         add_initial_timestamp(bytes, &header_format, &header)?;
         add_message_length_and_type_id(bytes, &header_format, header.message_length, header.message_type_id)?;
         add_message_stream_id(bytes, &header_format, header.message_stream_id)?;
-        add_extended_timestamp(bytes, &header_format, &header)?;
+        add_extended_timestamp(bytes, &header)?;
         add_message_payload(bytes, data_to_write)?;
 
         self.previous_headers.insert(header.chunk_stream_id, header);
@@ -201,12 +208,7 @@ fn add_initial_timestamp(bytes: &mut Cursor<Vec<u8>>, format: &ChunkHeaderFormat
         return Ok(());
     }
 
-    let value_to_write = match *format {
-        ChunkHeaderFormat::Full => header.timestamp.value,
-        _ => header.timestamp_delta
-    };
-
-    let capped_value = min(value_to_write, MAX_INITIAL_TIMESTAMP);
+    let capped_value = min(header.timestamp_field, MAX_INITIAL_TIMESTAMP);
     bytes.write_u24::<BigEndian>(capped_value)?;
 
     Ok(())
@@ -231,28 +233,13 @@ fn add_message_stream_id(bytes: &mut dyn Write, format: &ChunkHeaderFormat, stre
     Ok(())
 }
 
-fn add_extended_timestamp(bytes: &mut dyn Write, format: &ChunkHeaderFormat, header: &ChunkHeader) -> Result<(), ChunkSerializationError> {
-    //if *format == ChunkHeaderFormat::Empty {
-    //    return Ok(());
-    //}
+fn add_extended_timestamp(bytes: &mut dyn Write, header: &ChunkHeader) -> Result<(), ChunkSerializationError> {
 
-    let timestamp = match *format {
-        ChunkHeaderFormat::Full => header.timestamp.value,
-        ChunkHeaderFormat::Empty => {
-            if header.timestamp_delta == 0 {
-                header.timestamp.value
-            } else {
-                header.timestamp_delta
-            }
-        }
-        _ => header.timestamp_delta
-    };
-
-    if timestamp < MAX_INITIAL_TIMESTAMP {
+    if header.timestamp_field < MAX_INITIAL_TIMESTAMP {
         return Ok(());
     }
 
-    bytes.write_u32::<BigEndian>(timestamp)?;
+    bytes.write_u32::<BigEndian>(header.timestamp_field)?;
     Ok(())
 }
 
@@ -282,7 +269,7 @@ fn get_header_format(current_header: &mut ChunkHeader, previous_header: &ChunkHe
         return ChunkHeaderFormat::TimeDeltaWithoutMessageStreamId;
     }
 
-    if current_header.timestamp_delta != previous_header.timestamp_delta {
+    if current_header.timestamp_field != previous_header.timestamp_field {
         return ChunkHeaderFormat::TimeDeltaOnly;
     }
 
