@@ -66,6 +66,7 @@ enum PushState {
 struct PushClient {
     session: Option<ClientSession>,
     connection_id: Option<usize>,
+    push_host: String,
     push_app: String,
     push_source_stream: String,
     push_target_stream: String,
@@ -105,6 +106,7 @@ impl Server {
             &Some(ref options) => {
                 Some(PushClient {
                     push_app: options.app.clone(),
+                    push_host: options.host.clone(),
                     push_source_stream: options.source_stream.clone(),
                     push_target_stream: options.target_stream.clone(),
                     connection_id: None,
@@ -864,7 +866,9 @@ impl Server {
                     // to initiate the connection process
                     client.state = PushState::Connecting;
 
-                    let result = match client.session.as_mut().unwrap().request_connection(client.push_app.clone()) {
+                    let tc_url = format!("rtmp://{}:1935/{}", client.push_host, client.push_app);
+
+                    let result = match client.session.as_mut().unwrap().request_srs_connection(client.push_app.clone(), tc_url) {
                         Ok(result) => result,
                         Err(error) => {
                             println!("Failed to request connection for push client: {:?}", error);

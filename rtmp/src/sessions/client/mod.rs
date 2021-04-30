@@ -186,6 +186,40 @@ impl ClientSession {
         Ok(ClientSessionResult::OutboundResponse(packet))
     }
 
+    // Adding extra required amf0 values so that talking to SRS is possible - horrible duplication might not be required, but this is the best way I can find for now
+    pub fn request_srs_connection(&mut self, app_name: String, tc_url: String) -> Result<ClientSessionResult, ClientSessionError> {
+        match self.current_state {
+            ClientState::Disconnected => (),
+            _ => {
+                let kind = ClientSessionErrorKind::CantConnectWhileAlreadyConnected;
+                return Err(ClientSessionError {kind});
+            },
+        }
+
+        let transaction_id = self.get_next_transaction_id();
+        let transaction = OutstandingTransaction::ConnectionRequested {app_name: app_name.clone()};
+        self.outstanding_transactions.insert(transaction_id, transaction);
+        
+        let mut properties = HashMap::new();
+        properties.insert("app".to_string(), Amf0Value::Utf8String(app_name));
+        properties.insert("flashVer".to_string(), Amf0Value::Utf8String(self.config.flash_version.clone()));
+        properties.insert("objectEncoding".to_string(), Amf0Value::Number(0.0));
+        properties.insert("tcUrl".to_string(), Amf0Value::Utf8String(tc_url));
+
+
+        let message = RtmpMessage::Amf0Command {
+            command_name: "connect".to_string(),
+            command_object: Amf0Value::Object(properties),
+            additional_arguments: vec![],
+            transaction_id: transaction_id as f64,
+        };
+
+        let payload = message.into_message_payload(self.get_epoch(), 0)?;
+        let packet = self.serializer.serialize(&payload, false, false)?;
+
+        Ok(ClientSessionResult::OutboundResponse(packet))
+    }
+
     /// Starts the process of requesting playback on the server for the specified stream key.  An
     /// event will be raised when the request is accepted or rejected.  Once accepted we will
     /// receive audio, video, and metadata information via `ClientSessionEvent`s.
