@@ -173,6 +173,14 @@ impl ClientSession {
         properties.insert("flashVer".to_string(), Amf0Value::Utf8String(self.config.flash_version.clone()));
         properties.insert("objectEncoding".to_string(), Amf0Value::Number(0.0));
 
+        // Some implementations require a tcUrl to be sent up with the connection request
+        match &self.config.tc_url {
+            Some(tc_url) => {
+                properties.insert("tcUrl".to_string(), Amf0Value::Utf8String(tc_url.clone()));
+            },
+            None => ()
+        };
+
         let message = RtmpMessage::Amf0Command {
             command_name: "connect".to_string(),
             command_object: Amf0Value::Object(properties),

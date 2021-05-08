@@ -54,6 +54,44 @@ fn can_send_connect_request() {
 }
 
 #[test]
+fn can_send_connect_request_with_tc_url() {
+    let app_name = "test".to_string();
+    let mut config = ClientSessionConfig::new();
+    let tc_url = "rtmp://1.2.3.4:1935/app".to_string();
+    config.tc_url = Some(tc_url.clone());
+
+    let mut deserializer = ChunkDeserializer::new();
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+
+    let results = session.request_connection(app_name.clone()).unwrap();
+    let (mut responses, _) = split_results(&mut deserializer, vec![results]);
+
+    assert_eq!(responses.len(), 1, "Expected 1 response");
+    match responses.remove(0) {
+        (payload, RtmpMessage::Amf0Command {command_name, transaction_id, command_object, additional_arguments}) => {
+            assert_eq!(payload.message_stream_id, 0, "Unexpected message stream id");
+            assert_eq!(command_name, "connect".to_string(), "Unexpected command name");
+            assert_ne!(transaction_id, 0.0, "Transaction id should not be zero");
+            assert_eq!(additional_arguments.len(), 0, "Expected no additional arguments");
+
+            match command_object {
+                Amf0Value::Object(properties) => {
+                    assert_eq!(properties.get("app"), Some(&Amf0Value::Utf8String(app_name.clone())), "Unexpected app name");
+                    assert_eq!(properties.get("objectEncoding"), Some(&Amf0Value::Number(0.0)), "Unexpected object encoding");
+                    assert_eq!(properties.get("flashVer"), Some(&Amf0Value::Utf8String(config.flash_version.clone())), "Unexpected flash version");
+                    assert_eq!(properties.get("tcUrl"), Some(&Amf0Value::Utf8String(tc_url.clone())), "Unexpected tcUrl");
+                },
+
+                x => panic!("Expected Amf0Value::Object for command object, instead received: {:?}", x),
+            }
+        },
+
+        x => panic!("Expected Amf0Command, instead received: {:?}", x),
+    }
+}
+
+#[test]
 fn can_process_connect_success_response() {
     let app_name = "test".to_string();
     let config = ClientSessionConfig::new();
