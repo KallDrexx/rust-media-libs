@@ -799,7 +799,7 @@ fn can_send_metadata_to_playing_stream() {
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_playing(test_stream_key.as_ref(), stream_id, &mut session, &mut serializer, &mut deserializer);
 
-    let metadata = Rc::new(StreamMetadata {
+    let metadata = StreamMetadata {
         audio_bitrate_kbps: Some(100),
         audio_channels: Some(101),
         audio_codec: Some("102".to_string()),
@@ -811,9 +811,9 @@ fn can_send_metadata_to_playing_stream() {
         video_frame_rate: Some(107.0),
         video_height: Some(108),
         video_width: Some(109),
-    });
+    };
 
-    let packet = session.send_metadata(stream_id, metadata).unwrap();
+    let packet = session.send_metadata(stream_id, &metadata).unwrap();
     let payload = deserializer.get_next_message(&packet.bytes[..]).unwrap().unwrap();
     let message = payload.to_rtmp_message().unwrap();
 

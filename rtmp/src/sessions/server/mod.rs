@@ -12,7 +12,6 @@ mod tests;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
-use std::rc::Rc;
 use bytes::Bytes;
 use rml_amf0::Amf0Value;
 use ::chunk_io::{ChunkSerializer, ChunkDeserializer, Packet};
@@ -216,7 +215,7 @@ impl ServerSession {
     }
 
     /// Prepares metadata information to be sent to the client
-    pub fn send_metadata(&mut self, stream_id: u32, metadata: Rc<StreamMetadata>) -> Result<Packet, ServerSessionError> {
+    pub fn send_metadata(&mut self, stream_id: u32, metadata: &StreamMetadata) -> Result<Packet, ServerSessionError> {
         let mut properties = HashMap::with_capacity(11);
 
         metadata.video_width
