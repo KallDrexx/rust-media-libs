@@ -291,7 +291,7 @@ impl Server {
                     match channel.metadata {
                         None => (),
                         Some(ref metadata) => {
-                            let packet = match client.session.send_metadata(stream_id, metadata.clone()) {
+                            let packet = match client.session.send_metadata(stream_id, &metadata) {
                                 Ok(packet) => packet,
                                 Err(error) => {
                                     println!("Error occurred sending existing metadata to new client: {:?}", error);
@@ -393,7 +393,7 @@ impl Server {
                 None => continue,
             };
 
-            match client.session.send_metadata(active_stream_id, metadata.clone()) {
+            match client.session.send_metadata(active_stream_id, &metadata) {
                 Ok(packet) => {
                     server_results.push(ServerResult::OutboundPacket {
                         target_connection_id: client.connection_id,
