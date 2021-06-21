@@ -10,6 +10,8 @@ use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
 use rml_rtmp::chunk_io::{Packet};
 
 const BUFFER_SIZE: usize = 4096;
+const SOCKET_RECEIVE_BUFFER_SIZE: usize = 1 * 1024 * 1024;
+const SOCKET_SEND_BUFFER_SIZE: usize = 1 * 1024 * 1024;
 
 pub enum ReadResult {
     HandshakingInProgress,
@@ -62,6 +64,10 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(socket: TcpStream, count: usize, log_debug_logic: bool, is_inbound_connection: bool) -> Connection {
+        socket.set_nodelay(true).expect("Could not set nodelay!");
+        socket.set_recv_buffer_size(SOCKET_RECEIVE_BUFFER_SIZE).expect("Could not set recv buffer size");
+        socket.set_send_buffer_size(SOCKET_SEND_BUFFER_SIZE).expect("Could not set send buffer size");
+
         let debug_log_files = match log_debug_logic {
             true => {
                 fs::create_dir_all("logs").unwrap();
@@ -195,13 +201,13 @@ impl Connection {
             SendablePacket::Packet(packet) => packet.bytes,
         };
 
-        match self.socket.write(&bytes) {
-            Ok(bytes_sent) => {
+        match self.socket.write_all(&bytes) {
+            Ok(()) => {
                 if self.handshake_completed {
                     match self.debug_log_files {
                         None => (),
                         Some(ref mut logs) => {
-                            logs.rtmp_output_file.write(&bytes[..bytes_sent]).unwrap();
+                            logs.rtmp_output_file.write(&bytes).unwrap();
                         },
                     }
                 }
