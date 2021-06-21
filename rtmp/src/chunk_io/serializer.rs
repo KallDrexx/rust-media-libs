@@ -144,7 +144,7 @@ impl ChunkSerializer {
                         //  Continued chunks should use Format Type 3.
                         //  Streaming into Twitch was breaking when a payload exceeded the max chunk size
                         //  Continued chunks may add extended timestamp, set timestamp field as previous timestamp_field
-                        header.timestamp_field = (header.timestamp - previous_header.timestamp).value;
+                        header.timestamp_field = previous_header.timestamp_field;
                         ChunkHeaderFormat::Empty
 
                     } else if previous_header.can_be_dropped {
