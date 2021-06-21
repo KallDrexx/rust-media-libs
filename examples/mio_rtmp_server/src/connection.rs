@@ -64,7 +64,6 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(socket: TcpStream, count: usize, log_debug_logic: bool, is_inbound_connection: bool) -> Connection {
-        socket.set_nodelay(true).expect("Could not set nodelay!");
         socket.set_recv_buffer_size(SOCKET_RECEIVE_BUFFER_SIZE).expect("Could not set recv buffer size");
         socket.set_send_buffer_size(SOCKET_SEND_BUFFER_SIZE).expect("Could not set send buffer size");
 
