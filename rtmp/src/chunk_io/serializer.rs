@@ -624,6 +624,45 @@ mod tests {
     }
 
     #[test]
+    fn message_split_extended_timestamp() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[11_u8; 75]);
+        payload.extend_from_slice(&[22_u8; 25]);
+
+        let timestamp_value = MAX_INITIAL_TIMESTAMP + 1;
+        let message1 = MessagePayload {
+            timestamp: RtmpTimestamp::new(timestamp_value),
+            type_id: 50,
+            message_stream_id: 12,
+            data: Bytes::from(payload.clone()),
+        };
+
+        let mut serializer = ChunkSerializer::new();
+        serializer.set_max_chunk_size(75, RtmpTimestamp::new(0)).unwrap();
+
+        let packet = serializer.serialize(&message1, false, false).unwrap();
+
+        let mut cursor = Cursor::new(packet.bytes);
+        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b00000000, "Unexpected csid value");
+        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), MAX_INITIAL_TIMESTAMP, "Unexpected timestamp value");
+        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 100, "Unexpected message length value");
+        assert_eq!(cursor.read_u8().unwrap(), 50, "Unexpected type id");
+        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected message stream id");
+        assert_eq!(cursor.read_u32::<BigEndian>().unwrap(), timestamp_value, "Unexpected extended timestamp value");
+
+        let mut payload_bytes = [0_u8; 75];
+        let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
+        assert_eq!(bytes_read, 75, "Unexpected payload bytes read");
+        assert_eq!(&payload_bytes[..bytes_read], &([11_u8; 75])[..], "Unexpected payload contents");
+
+        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b11000000, "Unexpected 2nd csid value");
+        assert_eq!(cursor.read_u32::<BigEndian>().unwrap(), timestamp_value, "Unexpected extended timestamp value on second chunk");
+        let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
+        assert_eq!(bytes_read, 25, "Unexpected 2nd payload bytes read");
+        assert_eq!(&payload_bytes[..bytes_read], &([22_u8; 25])[..], "Unexpected 2nd payload contents");
+    }
+
+    #[test]
     fn changing_size_returns_set_chunk_size_outbound_message() {
         let mut serializer = ChunkSerializer::new();
         let packet = serializer.set_max_chunk_size(75, RtmpTimestamp::new(152)).unwrap();
