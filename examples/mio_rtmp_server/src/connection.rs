@@ -10,8 +10,8 @@ use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
 use rml_rtmp::chunk_io::{Packet};
 
 const BUFFER_SIZE: usize = 4096;
-const SOCKET_RECEIVE_BUFFER_SIZE: usize = 1 * 1024 * 1024;
-const SOCKET_SEND_BUFFER_SIZE: usize = 1 * 1024 * 1024;
+const SOCKET_RECEIVE_BUFFER_SIZE: usize = 4 * 1024 * 1024;
+const SOCKET_SEND_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 pub enum ReadResult {
     HandshakingInProgress,
