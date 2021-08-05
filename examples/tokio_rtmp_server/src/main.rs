@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (stream, connection_info) = listener.accept().await?;
 
         println!("Connection received from {}", connection_info.ip());
-        let _ = spawn(connection::start_handshake(stream));
+        let _ = tokio::spawn(connection::start_handshake(stream));
     }
 }
 
