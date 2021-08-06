@@ -13,11 +13,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (stream, connection_info) = listener.accept().await?;
 
         println!("Connection received from {}", connection_info.ip());
-        let _ = tokio::spawn(connection::start_handshake(stream));
+        spawn(connection::start_handshake(stream));
     }
 }
 
-async fn spawn<F, E>(future: F)
+fn spawn<F, E>(future: F)
 where
     F: Future<Output = Result<(), E>> + Send  + 'static,
     E: Display,

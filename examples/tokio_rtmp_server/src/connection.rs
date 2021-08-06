@@ -7,7 +7,9 @@ use rml_rtmp::sessions::{
     ServerSession,
     ServerSessionConfig,
     ServerSessionResult,
+    ServerSessionEvent,
 };
+use tokio::sync::mpsc::UnboundedSender;
 use crate::spawn;
 
 pub async fn start_handshake(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
@@ -22,7 +24,6 @@ pub async fn start_handshake(mut stream: TcpStream) -> Result<(), Box<dyn std::e
     loop {
         let bytes_read = stream.read(&mut buffer).await?;
         if bytes_read == 0 {
-            // Disconnection
             return Ok(());
         }
 
@@ -33,7 +34,7 @@ pub async fn start_handshake(mut stream: TcpStream) -> Result<(), Box<dyn std::e
 
             HandshakeProcessResult::Completed {response_bytes, remaining_bytes} => {
                 stream.write_all(&response_bytes).await?;
-                let _ = tokio::spawn(start_connection_manager(stream, remaining_bytes));
+                spawn(start_connection_manager(stream, remaining_bytes));
                 return Ok(());
             }
         }
@@ -43,11 +44,10 @@ pub async fn start_handshake(mut stream: TcpStream) -> Result<(), Box<dyn std::e
 async fn start_connection_manager(stream: TcpStream, received_bytes: Vec<u8>) -> Result<(), Box<dyn std::error::Error + Send  + Sync>> {
     let (stream_reader, stream_writer) = tokio::io::split(stream);
     let (read_bytes_sender, mut read_bytes_receiver) = mpsc::unbounded_channel();
-    let (write_bytes_sender, write_bytes_receiver) = mpsc::unbounded_channel();
-    println!("test2");
+    let (mut write_bytes_sender, write_bytes_receiver) = mpsc::unbounded_channel();
 
-    let _ = spawn(connection_reader(stream_reader, read_bytes_sender));
-    let _ = spawn(connection_writer(stream_writer, write_bytes_receiver));
+    spawn(connection_reader(stream_reader, read_bytes_sender));
+    spawn(connection_writer(stream_writer, write_bytes_receiver));
 
     let config = ServerSessionConfig::new();
     let (mut session, mut results) = ServerSession::new(config)
@@ -57,47 +57,41 @@ async fn start_connection_manager(stream: TcpStream, received_bytes: Vec<u8>) ->
         .map_err(|x| format!("Failed to handle input: {:?}", x))?;
 
     results.extend(remaining_bytes_results);
+    handle_session_results(&mut session, &mut results, &mut write_bytes_sender)?;
 
-    loop {
-        for result in results.drain(..) {
-            match result {
-                ServerSessionResult::OutboundResponse(packet) => {
-                    let bytes = Bytes::from(packet.bytes);
-                    write_bytes_sender.send(bytes)?;
-                },
+    while let Some(received_bytes) = read_bytes_receiver.recv().await {
+        results = session.handle_input(&received_bytes)
+            .map_err(|x| format!("Error handling input: {:?}", x))?;
 
-                ServerSessionResult::RaisedEvent(event) => {
-                    println!("Event raised by connection: {:?}", event);
-                },
-
-                ServerSessionResult::UnhandleableMessageReceived(payload) => {
-                    println!("Unhandleable message received: {:?}", payload);
-                }
-            }
-        }
-
-        while let Some(received_bytes) = read_bytes_receiver.recv().await {
-            results = session.handle_input(received_bytes.as_ref())
-                .map_err(|x| format!("Error handling input: {:?}", x))?;
-        }
+        handle_session_results(&mut session, &mut results, &mut write_bytes_sender)?;
     }
+
+    println!("Client disconnected");
+
+    Ok(())
 }
 
 async fn connection_reader(mut stream: ReadHalf<TcpStream>, manager: mpsc::UnboundedSender<Bytes>)
     -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
-    let mut buffer = BytesMut::with_capacity(4096);
+    // let mut buffer = BytesMut::with_capacity(4096);
+    // buffer.resize(4096, 0);
 
     loop {
-        let bytes_read = stream.read( buffer.as_mut()).await?;
+        let mut buffer = BytesMut::with_capacity(4096);
+        buffer.resize(4096, 0);
+        let bytes_read = stream.read( &mut buffer[..]).await?;
+        dbg!(bytes_read);
         if bytes_read == 0 {
             break;
         }
 
-        let bytes = buffer.split().freeze();
-        manager.send(bytes)?;
+        let bytes = buffer.split_off(bytes_read);
+        manager.send(buffer.freeze())?;
+        buffer = bytes;
     }
 
+    println!("Reader disconnected");
     Ok(())
 }
 
@@ -107,6 +101,69 @@ async fn connection_writer(mut stream: WriteHalf<TcpStream>, mut bytes_to_write:
     while let Some(bytes) = bytes_to_write.recv().await {
         // TODO: add support for skipping writes when backlogged
         stream.write_all(bytes.as_ref()).await?;
+    }
+
+    println!("Writer disconnected");
+    Ok(())
+}
+
+fn handle_session_results(session: &mut ServerSession,
+                          results: &mut Vec<ServerSessionResult>,
+                          byte_writer: &mut UnboundedSender<Bytes>) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    if results.len() == 0 {
+        return Ok(());
+    }
+
+    let mut new_results = Vec::new();
+    for result in results.drain(..) {
+        match result {
+            ServerSessionResult::OutboundResponse(packet) => {
+                let bytes = Bytes::from(packet.bytes);
+                byte_writer.send(bytes)?;
+            },
+
+            ServerSessionResult::RaisedEvent(event) => {
+                handle_raised_event(session, event, &mut new_results)?;
+            },
+
+            ServerSessionResult::UnhandleableMessageReceived(payload) => {
+                println!("Unhandleable message received: {:?}", payload);
+            }
+        }
+    }
+
+    handle_session_results(session, &mut new_results, byte_writer);
+
+    Ok(())
+}
+
+fn handle_raised_event(session: &mut ServerSession, event: ServerSessionEvent, new_results: &mut Vec<ServerSessionResult>) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    match event {
+        ServerSessionEvent::ConnectionRequested { request_id, app_name } => {
+            println!("Client requested connection to app {:?}", app_name);
+            new_results.extend(
+                session.accept_request(request_id)
+                    .map_err(|x| format!("Error occurred accepting request: {:?}", x))?
+            );
+        },
+
+        ServerSessionEvent::PublishStreamRequested { request_id, app_name, mode, stream_key } => {
+            println!("Client requesting publishing on {}/{} in mode {:?}", app_name, stream_key, mode);
+            new_results.extend(
+                session.accept_request(request_id)
+                    .map_err(|x| format!("Error accepting publish request: {:?}", x))?
+            );
+        },
+
+        ServerSessionEvent::StreamMetadataChanged {stream_key, app_name, metadata} => {
+            println!("New metadata published for stream key '{}': {:?}", stream_key, metadata);
+        },
+
+        ServerSessionEvent::VideoDataReceived {app_name: _app, stream_key: _key, timestamp: _time, data: _bytes} => {
+
+        },
+
+        x => println!("Unknown event raised: {:?}", x),
     }
 
     Ok(())
