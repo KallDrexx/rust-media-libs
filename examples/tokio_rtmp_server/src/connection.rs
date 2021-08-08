@@ -74,14 +74,10 @@ async fn start_connection_manager(stream: TcpStream, received_bytes: Vec<u8>) ->
 async fn connection_reader(mut stream: ReadHalf<TcpStream>, manager: mpsc::UnboundedSender<Bytes>)
     -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
-    // let mut buffer = BytesMut::with_capacity(4096);
-    // buffer.resize(4096, 0);
+    let mut buffer = BytesMut::with_capacity(4096);
 
     loop {
-        let mut buffer = BytesMut::with_capacity(4096);
-        buffer.resize(4096, 0);
-        let bytes_read = stream.read( &mut buffer[..]).await?;
-        dbg!(bytes_read);
+        let bytes_read = stream.read_buf( &mut buffer).await?;
         if bytes_read == 0 {
             break;
         }
