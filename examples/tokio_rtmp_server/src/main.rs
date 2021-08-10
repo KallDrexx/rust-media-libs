@@ -8,6 +8,8 @@ mod stream_manager;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let manager_sender = stream_manager::start();
+
     println!("Listening for connections on port 1935");
     let listener = TcpListener::bind("0.0.0.0:1935").await?;
     let mut current_id = 0;
@@ -15,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     loop {
         let (stream, connection_info) = listener.accept().await?;
 
-        let connection = Connection::new(current_id);
+        let connection = Connection::new(current_id, manager_sender.clone());
         println!("Connection {}: Connection received from {}", current_id, connection_info.ip());
 
         spawn(connection.start_handshake(stream));

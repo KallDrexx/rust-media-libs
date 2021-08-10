@@ -11,17 +11,30 @@ use rml_rtmp::sessions::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 use crate::spawn;
+use crate::stream_manager::{ConnectionMessage, StreamManagerMessage};
+
+enum State {
+    Waiting,
+    PublishRequested,
+    Publishing,
+    PlaybackRequested,
+    Playing,
+}
 
 pub struct Connection {
     id: i32,
     session: Option<ServerSession>,
+    stream_manager_sender: mpsc::UnboundedSender<StreamManagerMessage>,
+    state: State,
 }
 
 impl Connection {
-    pub fn new(id: i32) -> Self {
+    pub fn new(id: i32, stream_manager: mpsc::UnboundedSender<StreamManagerMessage>) -> Self {
         Connection {
             id,
-            session: None
+            session: None,
+            stream_manager_sender: stream_manager,
+            state: State::Waiting,
         }
     }
 
@@ -59,6 +72,12 @@ impl Connection {
         let (stream_reader, stream_writer) = tokio::io::split(stream);
         let (read_bytes_sender, mut read_bytes_receiver) = mpsc::unbounded_channel();
         let (mut write_bytes_sender, write_bytes_receiver) = mpsc::unbounded_channel();
+        let (message_sender, mut message_receiver) = mpsc::unbounded_channel();
+
+        self.stream_manager_sender.send(StreamManagerMessage::NewConnection {
+            connection_id: self.id,
+            sender: message_sender,
+        });
 
         spawn(connection_reader(self.id, stream_reader, read_bytes_sender));
         spawn(connection_writer(self.id, stream_writer, write_bytes_receiver));
@@ -75,11 +94,49 @@ impl Connection {
         results.extend(remaining_bytes_results);
         self.handle_session_results(&mut results, &mut write_bytes_sender)?;
 
-        while let Some(received_bytes) = read_bytes_receiver.recv().await {
-            results = self.session.as_mut().unwrap().handle_input(&received_bytes)
-                .map_err(|x| format!("Error handling input: {:?}", x))?;
+        loop {
+            tokio::select! {
+                message = read_bytes_receiver.recv() => {
+                    match message {
+                        None => break,
+                        Some(bytes) => {
+                            self.session.as_mut()
+                            .unwrap()
+                            .handle_input(&bytes)
+                            .map_err(|x| format!("Error handling input: {:?}", x))?;
+                        }
+                    }
+                }
 
-            self.handle_session_results(&mut results, &mut write_bytes_sender)?;
+                manager_message = message_receiver.recv() => {
+                    match manager_message {
+                        None => break,
+                        Some(message) => {
+                            match message {
+                                ConnectionMessage::RequestAccepted {request_id} => {
+                                    println!("Request accepted");
+                                },
+
+                                ConnectionMessage::RequestDenied {request_id} => {
+                                    println!("Request denied");
+                                },
+
+                                ConnectionMessage::NewVideoData {timestamp, data} => {
+                                    println!("Video Received");
+                                },
+
+                                ConnectionMessage::NewAudioData {timestamp, data} => {
+                                    println!("Audio Received");
+                                },
+
+                                ConnectionMessage::NewMetadata {metadata} => {
+                                    println!("metadata received");
+                                },
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         println!("Connection {}: Client disconnected", self.id);
