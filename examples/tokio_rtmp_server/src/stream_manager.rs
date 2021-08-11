@@ -43,14 +43,14 @@ pub enum StreamManagerMessage {
         connection_id: i32,
         rtmp_app: String,
         stream_key: String,
-        request_id: i32,
+        request_id: u32,
     },
 
     PlaybackRequest {
         connection_id: i32,
         rtmp_app: String,
         stream_key: String,
-        request_id: i32,
+        request_id: u32,
     },
 
     UpdatedStreamMetadata {
