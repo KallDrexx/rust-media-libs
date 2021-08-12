@@ -13,14 +13,14 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::spawn;
 use crate::stream_manager::{ConnectionMessage, StreamManagerMessage};
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 enum State {
     Waiting,
     Connected { app_name: String },
     PublishRequested { app_name: String, stream_key: String, request_id: u32 },
     Publishing { app_name: String, stream_key: String },
-    PlaybackRequested { app_name: String, stream_key: String, request_id: u32 },
-    Playing { app_name: String, stream_key: String },
+    PlaybackRequested { app_name: String, stream_key: String, request_id: u32, stream_id: u32 },
+    Playing { app_name: String, stream_key: String, stream_id: u32 },
 }
 
 #[derive(PartialEq)]
@@ -85,7 +85,7 @@ impl Connection {
         self.stream_manager_sender.send(StreamManagerMessage::NewConnection {
             connection_id: self.id,
             sender: message_sender,
-        });
+        })?;
 
         spawn(connection_reader(self.id, stream_reader, read_bytes_sender));
         spawn(connection_writer(self.id, stream_writer, write_bytes_receiver));
@@ -104,7 +104,7 @@ impl Connection {
         loop {
             let action = self.handle_session_results(&mut results, &mut write_bytes_sender)?;
             if action == ConnectionAction::Disconnect {
-                return Ok(());
+                break;
             }
 
             tokio::select! {
@@ -124,7 +124,13 @@ impl Connection {
                     match manager_message {
                         None => break,
                         Some(message) => {
-                            results = self.handle_connection_message(message)?;
+                            let (new_results, action) = self.handle_connection_message(message)?;
+                            match action {
+                                ConnectionAction::Disconnect => break,
+                                _ => (),
+                            };
+
+                            results = new_results;
                         }
                     }
                 }
@@ -139,58 +145,123 @@ impl Connection {
     fn handle_connection_message(&mut self, message: ConnectionMessage)
         -> Result<(Vec<ServerSessionResult>, ConnectionAction), Box<dyn std::error::Error + Sync + Send>> {
         match message {
-            ConnectionMessage::RequestAccepted { request_id } => {
+            ConnectionMessage::RequestAccepted { request_id: _ } => {
                 println!("Connection {}: Request accepted", self.id);
 
-                match &self.state {
+                let (new_state, return_val) = match &self.state {
                     State::PublishRequested {stream_key, app_name, request_id} => {
-                        self.state = State::Publishing {
+                        let new_state = State::Publishing {
                             app_name: app_name.clone(),
                             stream_key: stream_key.clone()
                         };
 
                         let results = self.session.as_mut().unwrap()
-                            .accept_request(request_id.clone())?;
+                            .accept_request(request_id.clone())
+                            .map_err(|x| format!("Failed to accept request: {:?}", x))?;
 
-                        return Ok((results, ConnectionAction::None));
+                        (Some(new_state), (results, ConnectionAction::None))
                     },
 
-                    State::PlaybackRequested {app_name, stream_key, request_id} => {
-                        self.state = State::Playing {
+                    State::PlaybackRequested {app_name, stream_key, request_id, stream_id} => {
+                        let new_state = State::Playing {
                             app_name: app_name.clone(),
                             stream_key: stream_key.clone(),
+                            stream_id: stream_id.clone(),
                         };
 
                         let results = self.session.as_mut().unwrap()
-                            .accept_request(request_id.clone())?;
+                            .accept_request(request_id.clone())
+                            .map_err(|x| format!("Failed to accept request: {:?}", x))?;
 
-                        return Ok((results, ConnectionAction::None));
+                        (Some(new_state), (results, ConnectionAction::None))
                     },
 
                     _ => {
                         eprintln!("Connection {}: Invalid state of {:?}", self.id, self.state);
-                        return Ok((results, ConnectionAction::Disconnect));
+                        (None, (Vec::new(), ConnectionAction::Disconnect))
+                    }
+                };
+
+                if new_state.is_some() {
+                    self.state = new_state.unwrap();
+                }
+
+                Ok(return_val)
+            },
+
+            ConnectionMessage::RequestDenied { request_id: _ } => {
+                println!("Connection {}: Request denied", self.id);
+
+                return match &self.state {
+                    State::PlaybackRequested { .. } => {
+                        Ok((Vec::new(), ConnectionAction::Disconnect))
+                    },
+
+                    State::PublishRequested { .. } => {
+                        Ok((Vec::new(), ConnectionAction::Disconnect))
+                    },
+
+                    _ => {
+                        eprintln!("Connection {}: Invalid state of {:?}", self.id, self.state);
+                        Ok((Vec::new(), ConnectionAction::Disconnect))
+                    }
+                };
+            },
+
+            ConnectionMessage::NewVideoData { timestamp, data } => {
+                return match &self.state {
+                    State::Playing {stream_id, ..} => {
+                        let packet = self.session.as_mut().unwrap()
+                            .send_video_data(*stream_id, data, timestamp, true)
+                            .map_err(|x| format!("Failed to send video data: {:?}", x))?;
+
+                        let results = vec![ServerSessionResult::OutboundResponse(packet)];
+                        Ok((results, ConnectionAction::None))
+                    },
+
+                    _ => {
+                        eprintln!("connection {}: expected video to be in playback state, instead was in {:?}", self.id, self.state);
+                        Ok((Vec::new(), ConnectionAction::Disconnect))
                     }
                 }
             },
 
-            ConnectionMessage::RequestDenied { request_id } => {
-                println!("Connection {}: Request denied", self.id);
-
-                return Ok((Vec::new(), ConnectionAction::Disconnect));
-            },
-
-            ConnectionMessage::NewVideoData { timestamp, data } => {
-            },
-
             ConnectionMessage::NewAudioData { timestamp, data } => {
+                return match &self.state {
+                    State::Playing { stream_id, .. } => {
+                        let packet = self.session.as_mut().unwrap()
+                            .send_audio_data(*stream_id, data, timestamp, true)
+                            .map_err(|x| format!("Failed to send audio data: {:?}", x))?;
+
+                        let results = vec![ServerSessionResult::OutboundResponse(packet)];
+                        Ok((results, ConnectionAction::None))
+                    },
+
+                    _ => {
+                        eprintln!("connection {}: expected video to be in playback state, instead was in {:?}", self.id, self.state);
+                        Ok((Vec::new(), ConnectionAction::Disconnect))
+                    }
+                }
             },
 
             ConnectionMessage::NewMetadata { metadata } => {
+                return match &self.state {
+                    State::Playing { stream_id, .. } => {
+                        let packet = self.session.as_mut().unwrap()
+                            .send_metadata(*stream_id, &metadata)
+                            .map_err(|x| format!("Failed to send metadata: {:?}", x))?;
+
+                        let results = vec![ServerSessionResult::OutboundResponse(packet)];
+                        Ok((results, ConnectionAction::None))
+                    },
+
+                    _ => {
+                        eprintln!("connection {}: expected video to be in playback state, instead was in {:?}", self.id, self.state);
+                        Ok((Vec::new(), ConnectionAction::Disconnect))
+                    }
+                }
             },
         }
-
-        Ok((Vec::new(), ConnectionAction::Disconnect))
     }
 
     fn handle_session_results(&mut self,
@@ -281,6 +352,7 @@ impl Connection {
                             request_id: request_id.clone(),
                             app_name: app_name.clone(),
                             stream_key: stream_key.clone(),
+                            stream_id,
                         };
 
                         self.stream_manager_sender.send(StreamManagerMessage::PlaybackRequest {
@@ -306,7 +378,7 @@ impl Connection {
                         self.stream_manager_sender.send(StreamManagerMessage::UpdatedStreamMetadata {
                             sending_connection_id: self.id,
                             metadata,
-                        });
+                        })?;
                     },
 
                     _ => {
@@ -323,7 +395,7 @@ impl Connection {
                             sending_connection_id: self.id,
                             timestamp,
                             data,
-                        });
+                        })?;
                     },
 
                     _ => {
@@ -332,6 +404,53 @@ impl Connection {
                     }
                 }
             },
+
+            ServerSessionEvent::AudioDataReceived { timestamp, data, ..} => {
+                match &self.state {
+                    State::Publishing {..} => {
+                        self.stream_manager_sender.send(StreamManagerMessage::NewAudioData {
+                            sending_connection_id: self.id,
+                            timestamp,
+                            data,
+                        })?;
+                    },
+
+                    _ => {
+                        eprintln!("Connection {}: expected client to be in publishing state, was in {:?}", self.id, self.state);
+                        return Ok(ConnectionAction::Disconnect);
+                    }
+                }
+            },
+
+            ServerSessionEvent::PlayStreamFinished {..} => {
+                match &self.state {
+                    State::Playing {..} => {
+                        self.stream_manager_sender.send(StreamManagerMessage::PlaybackFinished {
+                            connection_id: self.id
+                        })?;
+                    },
+
+                    _ => {
+                        eprintln!("Connection {}: Expected client to be in playback state, was in {:?}", self.id, self.state);
+                        return Ok(ConnectionAction::Disconnect);
+                    }
+                }
+            },
+
+            ServerSessionEvent::PublishStreamFinished {..} => {
+                match &self.state {
+                    State::Publishing {..} => {
+                        self.stream_manager_sender.send(StreamManagerMessage::PublishFinished {
+                            connection_id: self.id,
+                        })?;
+                    },
+
+                    _ => {
+                        eprintln!("Connection {}: Expected client to be in publishing state, was in {:?}", self.id, self.state);
+                        return Ok(ConnectionAction::Disconnect);
+                    }
+                }
+            }
 
             x => println!("Connection {}: Unknown event raised: {:?}", self.id, x),
         }
@@ -371,3 +490,4 @@ async fn connection_writer(connection_id: i32, mut stream: WriteHalf<TcpStream>,
     println!("Connection {}: Writer disconnected", connection_id);
     Ok(())
 }
+
