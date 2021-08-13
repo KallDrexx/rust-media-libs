@@ -25,10 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
-fn spawn<F, E>(future: F)
+fn spawn<F>(future: F)
 where
-    F: Future<Output = Result<(), E>> + Send  + 'static,
-    E: Display,
+    F: Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send  + 'static,
 {
     tokio::task::spawn(async {
         if let Err(error) = future.await {

@@ -7,5 +7,6 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "1.9", features = ["full"]}
+futures = { version = "0.3" }
 bytes = "1"
 rml_rtmp = { path = "../../rtmp" }

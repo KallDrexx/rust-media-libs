@@ -8,77 +8,11 @@ use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use crate::spawn;
 
-#[derive(Debug)]
-pub enum ConnectionMessage {
-    RequestAccepted {
-        request_id: u32,
-    },
+mod connection_message;
+mod stream_manager_message;
 
-    RequestDenied {
-        request_id: u32,
-    },
-
-    NewVideoData {
-        timestamp: RtmpTimestamp,
-        data: Bytes,
-    },
-
-    NewAudioData {
-        timestamp: RtmpTimestamp,
-        data: Bytes,
-    },
-
-    NewMetadata {
-        metadata: StreamMetadata,
-    },
-}
-
-#[derive(Debug)]
-pub enum StreamManagerMessage {
-    NewConnection {
-        connection_id: i32,
-        sender: mpsc::UnboundedSender<ConnectionMessage>,
-    },
-
-    PublishRequest {
-        connection_id: i32,
-        rtmp_app: String,
-        stream_key: String,
-        request_id: u32,
-    },
-
-    PlaybackRequest {
-        connection_id: i32,
-        rtmp_app: String,
-        stream_key: String,
-        request_id: u32,
-    },
-
-    UpdatedStreamMetadata {
-        sending_connection_id: i32,
-        metadata: StreamMetadata,
-    },
-
-    NewVideoData {
-        sending_connection_id: i32,
-        timestamp: RtmpTimestamp,
-        data: Bytes,
-    },
-
-    NewAudioData {
-        sending_connection_id: i32,
-        timestamp: RtmpTimestamp,
-        data: Bytes,
-    },
-
-    PublishFinished {
-        connection_id: i32,
-    },
-
-    PlaybackFinished {
-        connection_id: i32,
-    }
-}
+pub use connection_message::ConnectionMessage;
+pub use stream_manager_message::StreamManagerMessage;
 
 struct PublishDetails {
     video_sequence_header: Option<Bytes>,
@@ -128,7 +62,7 @@ async fn run(mut receiver: UnboundedReceiver<StreamManagerMessage>) -> Result<()
                     None => (),
                     Some(details) => {
                         println!("Publish request by connection {} for stream '{}' rejected as it's already being published by connection {}",
-                            connection_id, key, details.connection_id);
+                                 connection_id, key, details.connection_id);
 
                         sender.send(ConnectionMessage::RequestDenied {request_id})?;
                         continue;
@@ -187,6 +121,7 @@ async fn run(mut receiver: UnboundedReceiver<StreamManagerMessage>) -> Result<()
                     sender.send(ConnectionMessage::NewVideoData {
                         timestamp: RtmpTimestamp::new(0),
                         data: data.clone(),
+                        can_be_dropped: false,
                     })?;
                 }
 
@@ -194,6 +129,7 @@ async fn run(mut receiver: UnboundedReceiver<StreamManagerMessage>) -> Result<()
                     sender.send(ConnectionMessage::NewAudioData {
                         timestamp: RtmpTimestamp::new(0),
                         data: data.clone(),
+                        can_be_dropped: false,
                     })?;
                 }
             },
@@ -245,7 +181,11 @@ async fn run(mut receiver: UnboundedReceiver<StreamManagerMessage>) -> Result<()
                             None => continue,
                         };
 
-                        sender.send(ConnectionMessage::NewAudioData {timestamp, data: data.clone()})?;
+                        sender.send(ConnectionMessage::NewAudioData {
+                            timestamp,
+                            data: data.clone(),
+                            can_be_dropped: true
+                        })?;
                     }
                 }
             },
@@ -261,14 +201,14 @@ async fn run(mut receiver: UnboundedReceiver<StreamManagerMessage>) -> Result<()
                     None => continue,
                 };
 
+                let mut can_be_dropped = true;
                 if is_video_sequence_header(&data) {
                     details.video_sequence_header = Some(data.clone());
+                    can_be_dropped = false;
                 }
-
-                let players = match players_by_key.get(key.as_str()) {
-                    Some(x) => x,
-                    None => continue,
-                };
+                else if is_video_keyframe(&data) {
+                    can_be_dropped = false;
+                }
 
                 if let Some(players) = players_by_key.get(key.as_str()) {
                     for player_id in players {
@@ -277,7 +217,11 @@ async fn run(mut receiver: UnboundedReceiver<StreamManagerMessage>) -> Result<()
                             None => continue,
                         };
 
-                        sender.send(ConnectionMessage::NewVideoData {timestamp, data: data.clone()})?;
+                        sender.send(ConnectionMessage::NewVideoData {
+                            timestamp,
+                            data: data.clone(),
+                            can_be_dropped,
+                        })?;
                     }
                 }
             },

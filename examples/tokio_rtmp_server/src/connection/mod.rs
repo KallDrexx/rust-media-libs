@@ -1,33 +1,27 @@
+mod connection_action;
+mod state;
+
+use std::collections::VecDeque;
+use futures::future::FutureExt;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncWriteExt, AsyncReadExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedSender;
 use bytes::{Bytes, BytesMut};
 use rml_rtmp::handshake::{Handshake, PeerType, HandshakeProcessResult};
+use rml_rtmp::chunk_io::Packet;
 use rml_rtmp::sessions::{
     ServerSession,
     ServerSessionConfig,
     ServerSessionResult,
     ServerSessionEvent,
 };
-use tokio::sync::mpsc::UnboundedSender;
+
 use crate::spawn;
 use crate::stream_manager::{ConnectionMessage, StreamManagerMessage};
 
-#[derive(PartialEq, Debug, Clone)]
-enum State {
-    Waiting,
-    Connected { app_name: String },
-    PublishRequested { app_name: String, stream_key: String, request_id: u32 },
-    Publishing { app_name: String, stream_key: String },
-    PlaybackRequested { app_name: String, stream_key: String, request_id: u32, stream_id: u32 },
-    Playing { app_name: String, stream_key: String, stream_id: u32 },
-}
-
-#[derive(PartialEq)]
-enum ConnectionAction {
-    None,
-    Disconnect,
-}
+use state::State;
+use connection_action::ConnectionAction;
 
 pub struct Connection {
     id: i32,
@@ -143,7 +137,7 @@ impl Connection {
     }
 
     fn handle_connection_message(&mut self, message: ConnectionMessage)
-        -> Result<(Vec<ServerSessionResult>, ConnectionAction), Box<dyn std::error::Error + Sync + Send>> {
+                                 -> Result<(Vec<ServerSessionResult>, ConnectionAction), Box<dyn std::error::Error + Sync + Send>> {
         match message {
             ConnectionMessage::RequestAccepted { request_id: _ } => {
                 println!("Connection {}: Request accepted", self.id);
@@ -208,11 +202,11 @@ impl Connection {
                 };
             },
 
-            ConnectionMessage::NewVideoData { timestamp, data } => {
+            ConnectionMessage::NewVideoData { timestamp, data , can_be_dropped} => {
                 return match &self.state {
                     State::Playing {stream_id, ..} => {
                         let packet = self.session.as_mut().unwrap()
-                            .send_video_data(*stream_id, data, timestamp, true)
+                            .send_video_data(*stream_id, data, timestamp, can_be_dropped)
                             .map_err(|x| format!("Failed to send video data: {:?}", x))?;
 
                         let results = vec![ServerSessionResult::OutboundResponse(packet)];
@@ -226,11 +220,11 @@ impl Connection {
                 }
             },
 
-            ConnectionMessage::NewAudioData { timestamp, data } => {
+            ConnectionMessage::NewAudioData { timestamp, data , can_be_dropped} => {
                 return match &self.state {
                     State::Playing { stream_id, .. } => {
                         let packet = self.session.as_mut().unwrap()
-                            .send_audio_data(*stream_id, data, timestamp, true)
+                            .send_audio_data(*stream_id, data, timestamp, can_be_dropped)
                             .map_err(|x| format!("Failed to send audio data: {:?}", x))?;
 
                         let results = vec![ServerSessionResult::OutboundResponse(packet)];
@@ -266,8 +260,8 @@ impl Connection {
 
     fn handle_session_results(&mut self,
                               results: &mut Vec<ServerSessionResult>,
-                              byte_writer: &mut UnboundedSender<Bytes>)
-        -> Result<ConnectionAction, Box<dyn std::error::Error + Sync + Send>> {
+                              byte_writer: &mut UnboundedSender<Packet>)
+                              -> Result<ConnectionAction, Box<dyn std::error::Error + Sync + Send>> {
         if results.len() == 0 {
             return Ok(ConnectionAction::None);
         }
@@ -276,8 +270,7 @@ impl Connection {
         for result in results.drain(..) {
             match result {
                 ServerSessionResult::OutboundResponse(packet) => {
-                    let bytes = Bytes::from(packet.bytes);
-                    byte_writer.send(bytes)?;
+                    byte_writer.send(packet)?;
                 },
 
                 ServerSessionResult::RaisedEvent(event) => {
@@ -299,7 +292,7 @@ impl Connection {
     }
 
     fn handle_raised_event(&mut self, event: ServerSessionEvent, new_results: &mut Vec<ServerSessionResult>)
-        -> Result<ConnectionAction, Box<dyn std::error::Error + Sync + Send>> {
+                           -> Result<ConnectionAction, Box<dyn std::error::Error + Sync + Send>> {
         match event {
             ServerSessionEvent::ConnectionRequested { request_id, app_name } => {
                 println!("Connection {}: Client requested connection to app {:?}", self.id, app_name);
@@ -479,12 +472,43 @@ async fn connection_reader(connection_id: i32, mut stream: ReadHalf<TcpStream>, 
     Ok(())
 }
 
-async fn connection_writer(connection_id: i32, mut stream: WriteHalf<TcpStream>, mut bytes_to_write: mpsc::UnboundedReceiver<Bytes>)
+async fn connection_writer(connection_id: i32,
+                           mut stream: WriteHalf<TcpStream>,
+                           mut packets_to_send: mpsc::UnboundedReceiver<Packet>)
                            -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
-    while let Some(bytes) = bytes_to_write.recv().await {
-        // TODO: add support for skipping writes when backlogged
-        stream.write_all(bytes.as_ref()).await?;
+    const BACKLOG_THRESHOLD: usize = 20;
+    let mut send_queue = VecDeque::new();
+
+    loop {
+        let packet = packets_to_send.recv().await;
+        if packet.is_none() {
+            break; // connection closed
+        }
+
+        let packet = packet.unwrap();
+
+        // Since RTMP is TCP based, if bandwidth is low between the server and the client then
+        // we will end up backlogging the mpsc receiver.  However, mpsc does not have a good
+        // way to know how many items are pending.  So we need to receive all pending packets
+        // in a non-blocking manner, put them in a queue, and if the queue is too large ignore
+        // optional packets.
+        send_queue.push_back(packet);
+        while let Some(Some(packet)) = packets_to_send.recv().now_or_never() {
+            send_queue.push_back(packet);
+        }
+
+        let mut send_optional_packets = true;
+        if send_queue.len() > BACKLOG_THRESHOLD {
+            println!("Connection {}: Too many pending packets, dropping optional ones", connection_id);
+            send_optional_packets = false;
+        }
+
+        for packet in send_queue.drain(..) {
+            if send_optional_packets || !packet.can_be_dropped {
+                stream.write_all(packet.bytes.as_ref()).await?;
+            }
+        }
     }
 
     println!("Connection {}: Writer disconnected", connection_id);
