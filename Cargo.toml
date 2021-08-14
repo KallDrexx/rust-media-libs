@@ -7,4 +7,5 @@ members = [
 	"tools/rtmp-log-reader",
 	"examples/mio_rtmp_server",
 	"examples/threaded_rtmp_server",
+	"examples/tokio_rtmp_server"
 ]
