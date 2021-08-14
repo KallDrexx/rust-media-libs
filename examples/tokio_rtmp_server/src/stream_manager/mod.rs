@@ -1,19 +1,20 @@
 mod connection_message;
 mod stream_manager_message;
 mod publish_details;
+mod player_details;
 
 use tokio::sync::mpsc;
 use rml_rtmp::time::RtmpTimestamp;
+use rml_rtmp::sessions::StreamMetadata;
 use bytes::Bytes;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use std::collections::hash_map::HashMap;
-use std::collections::hash_set::HashSet;
 use crate::send;
 
 pub use connection_message::ConnectionMessage;
 pub use stream_manager_message::StreamManagerMessage;
 pub use publish_details::PublishDetails;
-use rml_rtmp::sessions::StreamMetadata;
+pub use player_details::PlayerDetails;
 
 pub fn start() -> mpsc::UnboundedSender<StreamManagerMessage> {
     let (sender, receiver) = mpsc::unbounded_channel();
@@ -25,7 +26,7 @@ pub fn start() -> mpsc::UnboundedSender<StreamManagerMessage> {
 }
 
 struct StreamManager {
-    players_by_key: HashMap<String, HashSet<i32>>,
+    players_by_key: HashMap<String, HashMap<i32, PlayerDetails>>,
     publish_details: HashMap<String, PublishDetails>,
     sender_by_connection_id: HashMap<i32, mpsc::UnboundedSender<ConnectionMessage>>,
     key_by_connection_id: HashMap<i32, String>,
@@ -175,8 +176,8 @@ impl StreamManager {
         }
 
         let key = format!("{}/{}", rtmp_app, stream_key);
-        let connection_ids = self.players_by_key.entry(key.clone()).or_insert(HashSet::new());
-        connection_ids.insert(connection_id);
+        let connection_ids = self.players_by_key.entry(key.clone()).or_insert(HashMap::new());
+        connection_ids.insert(connection_id, PlayerDetails::new(connection_id));
         self.key_by_connection_id.insert(connection_id, key.clone());
 
         if !send(&sender, ConnectionMessage::RequestAccepted {request_id}) {
@@ -258,7 +259,7 @@ impl StreamManager {
         }
 
         if let Some(players) = self.players_by_key.get(key.as_str()) {
-            for player_id in players {
+            for (player_id, _) in players {
                 let sender = match self.sender_by_connection_id.get_mut(player_id) {
                     Some(x) => x,
                     None => return,
@@ -290,20 +291,33 @@ impl StreamManager {
         };
 
         let mut can_be_dropped = true;
+        let mut is_key_frame = false;
         if is_video_sequence_header(&data) {
             details.video_sequence_header = Some(data.clone());
             can_be_dropped = false;
         }
         else if is_video_keyframe(&data) {
             can_be_dropped = false;
+            is_key_frame = true;
         }
 
-        if let Some(players) = self.players_by_key.get(key.as_str()) {
-            for player_id in players {
+        if let Some(players) = self.players_by_key.get_mut(key.as_str()) {
+            for (player_id, mut details) in players {
                 let sender = match self.sender_by_connection_id.get_mut(player_id) {
                     Some(x) => x,
                     None => return,
                 };
+
+                // Only send this video frame if it's a required video frame, or the player has
+                // already received at least one key frame.  If a player joins mid-stream, then
+                // there's no point in sending them video frames without an initial keyframe.
+                if can_be_dropped && !details.has_received_video_keyframe {
+                    continue;
+                }
+
+                if is_key_frame {
+                    details.has_received_video_keyframe = true;
+                }
 
                 let message = ConnectionMessage::NewVideoData {
                     timestamp,
@@ -330,7 +344,7 @@ impl StreamManager {
         details.metadata = Some(metadata.clone());
 
         if let Some(players) = self.players_by_key.get(key.as_str()) {
-            for player_id in players {
+            for (player_id, _) in players {
                 let sender = match self.sender_by_connection_id.get_mut(player_id) {
                     Some(x) => x,
                     None => return,
