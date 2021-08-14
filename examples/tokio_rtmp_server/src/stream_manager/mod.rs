@@ -3,18 +3,21 @@ mod stream_manager_message;
 mod publish_details;
 mod player_details;
 
+use std::collections::hash_map::HashMap;
+use futures::future::select_all;
+use futures::future::BoxFuture;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use rml_rtmp::time::RtmpTimestamp;
 use rml_rtmp::sessions::StreamMetadata;
 use bytes::Bytes;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use std::collections::hash_map::HashMap;
 use crate::send;
 
 pub use connection_message::ConnectionMessage;
 pub use stream_manager_message::StreamManagerMessage;
 pub use publish_details::PublishDetails;
 pub use player_details::PlayerDetails;
+use futures::FutureExt;
 
 pub fn start() -> mpsc::UnboundedSender<StreamManagerMessage> {
     let (sender, receiver) = mpsc::unbounded_channel();
@@ -25,20 +28,27 @@ pub fn start() -> mpsc::UnboundedSender<StreamManagerMessage> {
     sender
 }
 
-struct StreamManager {
+enum FutureResult {
+    Disconnection{connection_id: i32},
+    MessageReceived{receiver: UnboundedReceiver<StreamManagerMessage>, message: Option<StreamManagerMessage>},
+}
+
+struct StreamManager<'a> {
     players_by_key: HashMap<String, HashMap<i32, PlayerDetails>>,
     publish_details: HashMap<String, PublishDetails>,
     sender_by_connection_id: HashMap<i32, mpsc::UnboundedSender<ConnectionMessage>>,
     key_by_connection_id: HashMap<i32, String>,
+    new_disconnect_futures: Vec<BoxFuture<'a, FutureResult>>,
 }
 
-impl StreamManager {
+impl<'a> StreamManager<'a> {
     fn new() -> Self {
         StreamManager {
             publish_details: HashMap::new(),
             players_by_key: HashMap::new(),
             sender_by_connection_id: HashMap::new(),
             key_by_connection_id: HashMap::new(),
+            new_disconnect_futures: Vec::new(),
         }
     }
 
@@ -59,47 +69,85 @@ impl StreamManager {
         }
     }
 
-    async fn run(mut self, mut receiver: UnboundedReceiver<StreamManagerMessage>) {
-        while let Some(message) = receiver.recv().await {
-            match message {
-                StreamManagerMessage::NewConnection {connection_id, sender} => {
-                    self.handle_new_connection(connection_id, sender);
+    async fn run(mut self, receiver: UnboundedReceiver<StreamManagerMessage>) {
+        async fn new_receiver_future(mut receiver: UnboundedReceiver<StreamManagerMessage>) -> FutureResult {
+            let result = receiver.recv().await;
+            FutureResult::MessageReceived {
+                receiver,
+                message: result,
+            }
+        }
+
+        let mut futures = select_all(vec![new_receiver_future(receiver).boxed()]);
+
+        loop {
+            let (result, _index, remaining_futures) = futures.await;
+            let mut new_futures = Vec::from(remaining_futures);
+
+            match result {
+                FutureResult::MessageReceived {receiver, message} => {
+                    match message {
+                        Some(message) => self.handle_message(message),
+                        None => return, // receiver has no more senders
+                    }
+
+                    new_futures.push(new_receiver_future(receiver).boxed());
                 },
 
-                StreamManagerMessage::PublishRequest {connection_id, request_id, rtmp_app, stream_key} => {
-                   self.handle_publish_request(connection_id, request_id, rtmp_app, stream_key);
-                },
-
-                StreamManagerMessage::PlaybackRequest {connection_id, request_id, stream_key, rtmp_app} => {
-                    self.handle_playback_request(connection_id, request_id, rtmp_app, stream_key);
-                },
-
-                StreamManagerMessage::PlaybackFinished {connection_id} => {
-                    self.handle_playback_finished(connection_id);
-                },
-
-                StreamManagerMessage::PublishFinished {connection_id} => {
-                    self.handle_publish_finished(connection_id);
-                },
-
-                StreamManagerMessage::NewAudioData {sending_connection_id, timestamp, data} => {
-                    self.handle_new_audio_data(sending_connection_id, timestamp, data);
-                },
-
-                StreamManagerMessage::NewVideoData {sending_connection_id, timestamp, data} => {
-                    self.handle_new_video_data(sending_connection_id, timestamp, data);
-                },
-
-                StreamManagerMessage::UpdatedStreamMetadata {sending_connection_id, metadata} => {
-                    self.handle_new_metadata(sending_connection_id, metadata);
+                FutureResult::Disconnection {connection_id} => {
+                    self.cleanup_connection(connection_id);
                 },
             }
+
+            for future in self.new_disconnect_futures.drain(..) {
+                new_futures.push(future);
+            }
+
+            futures = select_all(new_futures);
+        }
+    }
+
+    fn handle_message(&mut self, message: StreamManagerMessage) {
+        match message {
+            StreamManagerMessage::NewConnection {connection_id, sender, disconnection} => {
+                self.handle_new_connection(connection_id, sender, disconnection);
+            },
+
+            StreamManagerMessage::PublishRequest {connection_id, request_id, rtmp_app, stream_key} => {
+                self.handle_publish_request(connection_id, request_id, rtmp_app, stream_key);
+            },
+
+            StreamManagerMessage::PlaybackRequest {connection_id, request_id, stream_key, rtmp_app} => {
+                self.handle_playback_request(connection_id, request_id, rtmp_app, stream_key);
+            },
+
+            StreamManagerMessage::PlaybackFinished {connection_id} => {
+                self.handle_playback_finished(connection_id);
+            },
+
+            StreamManagerMessage::PublishFinished {connection_id} => {
+                self.handle_publish_finished(connection_id);
+            },
+
+            StreamManagerMessage::NewAudioData {sending_connection_id, timestamp, data} => {
+                self.handle_new_audio_data(sending_connection_id, timestamp, data);
+            },
+
+            StreamManagerMessage::NewVideoData {sending_connection_id, timestamp, data} => {
+                self.handle_new_video_data(sending_connection_id, timestamp, data);
+            },
+
+            StreamManagerMessage::UpdatedStreamMetadata {sending_connection_id, metadata} => {
+                self.handle_new_metadata(sending_connection_id, metadata);
+            },
         }
     }
 
     fn handle_new_connection(&mut self, connection_id: i32,
-                             sender: UnboundedSender<ConnectionMessage>) {
+                             sender: UnboundedSender<ConnectionMessage>,
+                             disconnection: UnboundedReceiver<()>) {
         self.sender_by_connection_id.insert(connection_id, sender);
+        self.new_disconnect_futures.push(wait_for_client_disconnection(connection_id, disconnection).boxed());
     }
 
     fn handle_publish_request(&mut self, connection_id: i32,
@@ -376,4 +424,12 @@ fn is_video_keyframe(data: &Bytes) -> bool {
     return data.len() >= 2 &&
         data[0] == 0x17 &&
         data[1] != 0x00; // 0x00 is the sequence header, don't count that for now
+}
+
+async fn wait_for_client_disconnection(connection_id: i32, mut receiver: UnboundedReceiver<()>)
+    -> FutureResult {
+    // The channel should only be closed when the client has disconnected
+    while let Some(()) = receiver.recv().await { }
+
+    FutureResult::Disconnection {connection_id}
 }

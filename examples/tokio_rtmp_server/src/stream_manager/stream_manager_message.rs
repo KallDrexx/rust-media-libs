@@ -9,6 +9,7 @@ pub enum StreamManagerMessage {
     NewConnection {
         connection_id: i32,
         sender: mpsc::UnboundedSender<ConnectionMessage>,
+        disconnection: mpsc::UnboundedReceiver<()>,
     },
 
     PublishRequest {

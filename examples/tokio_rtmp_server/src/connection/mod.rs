@@ -76,9 +76,13 @@ impl Connection {
         let (mut write_bytes_sender, write_bytes_receiver) = mpsc::unbounded_channel();
         let (message_sender, mut message_receiver) = mpsc::unbounded_channel();
 
+        // Channel used so the stream manager can detect when the connection manager has quit
+        let (_disconnection_sender, disconnection_receiver) = mpsc::unbounded_channel();
+
         let message = StreamManagerMessage::NewConnection {
             connection_id: self.id,
             sender: message_sender,
+            disconnection: disconnection_receiver,
         };
 
         if !send(&self.stream_manager_sender, message) {
