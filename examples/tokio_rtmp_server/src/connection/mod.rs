@@ -17,7 +17,7 @@ use rml_rtmp::sessions::{
     ServerSessionEvent,
 };
 
-use crate::spawn;
+use crate::{spawn, send};
 use crate::stream_manager::{ConnectionMessage, StreamManagerMessage};
 
 use state::State;
@@ -76,10 +76,14 @@ impl Connection {
         let (mut write_bytes_sender, write_bytes_receiver) = mpsc::unbounded_channel();
         let (message_sender, mut message_receiver) = mpsc::unbounded_channel();
 
-        self.stream_manager_sender.send(StreamManagerMessage::NewConnection {
+        let message = StreamManagerMessage::NewConnection {
             connection_id: self.id,
             sender: message_sender,
-        })?;
+        };
+
+        if !send(&self.stream_manager_sender, message) {
+            return Ok(());
+        }
 
         spawn(connection_reader(self.id, stream_reader, read_bytes_sender));
         spawn(connection_writer(self.id, stream_writer, write_bytes_receiver));
@@ -270,7 +274,9 @@ impl Connection {
         for result in results.drain(..) {
             match result {
                 ServerSessionResult::OutboundResponse(packet) => {
-                    byte_writer.send(packet)?;
+                    if !send(&byte_writer, packet) {
+                        break;
+                    }
                 },
 
                 ServerSessionResult::RaisedEvent(event) => {
@@ -321,12 +327,16 @@ impl Connection {
                             stream_key: stream_key.clone(),
                         };
 
-                        self.stream_manager_sender.send(StreamManagerMessage::PublishRequest {
+                        let message = StreamManagerMessage::PublishRequest {
                             rtmp_app: app_name,
                             stream_key,
                             request_id,
                             connection_id: self.id,
-                        })?;
+                        };
+
+                        if !send(&self.stream_manager_sender, message) {
+                            return Ok(ConnectionAction::Disconnect);
+                        }
                     },
 
                     _ => {
@@ -348,12 +358,16 @@ impl Connection {
                             stream_id,
                         };
 
-                        self.stream_manager_sender.send(StreamManagerMessage::PlaybackRequest {
+                        let message = StreamManagerMessage::PlaybackRequest {
                             request_id,
                             rtmp_app: app_name,
                             stream_key,
                             connection_id: self.id,
-                        })?;
+                        };
+
+                        if !send(&self.stream_manager_sender, message) {
+                            return Ok(ConnectionAction::Disconnect);
+                        }
                     },
 
                     _ => {
@@ -368,10 +382,14 @@ impl Connection {
 
                 match &self.state {
                     State::Publishing {..} => {
-                        self.stream_manager_sender.send(StreamManagerMessage::UpdatedStreamMetadata {
+                        let message = StreamManagerMessage::UpdatedStreamMetadata {
                             sending_connection_id: self.id,
                             metadata,
-                        })?;
+                        };
+
+                        if !send(&self.stream_manager_sender, message) {
+                            return Ok(ConnectionAction::Disconnect);
+                        }
                     },
 
                     _ => {
@@ -384,11 +402,15 @@ impl Connection {
             ServerSessionEvent::VideoDataReceived { app_name: _app, stream_key: _key, timestamp, data } => {
                 match &self.state {
                     State::Publishing {..} => {
-                        self.stream_manager_sender.send(StreamManagerMessage::NewVideoData {
+                        let message = StreamManagerMessage::NewVideoData {
                             sending_connection_id: self.id,
                             timestamp,
                             data,
-                        })?;
+                        };
+
+                        if !send(&self.stream_manager_sender, message) {
+                            return Ok(ConnectionAction::Disconnect);
+                        }
                     },
 
                     _ => {
@@ -401,11 +423,15 @@ impl Connection {
             ServerSessionEvent::AudioDataReceived { timestamp, data, ..} => {
                 match &self.state {
                     State::Publishing {..} => {
-                        self.stream_manager_sender.send(StreamManagerMessage::NewAudioData {
+                        let message = StreamManagerMessage::NewAudioData {
                             sending_connection_id: self.id,
                             timestamp,
                             data,
-                        })?;
+                        };
+
+                        if !send(&self.stream_manager_sender, message) {
+                            return Ok(ConnectionAction::Disconnect);
+                        }
                     },
 
                     _ => {
@@ -418,9 +444,13 @@ impl Connection {
             ServerSessionEvent::PlayStreamFinished {..} => {
                 match &self.state {
                     State::Playing {..} => {
-                        self.stream_manager_sender.send(StreamManagerMessage::PlaybackFinished {
+                        let message = StreamManagerMessage::PlaybackFinished {
                             connection_id: self.id
-                        })?;
+                        };
+
+                        if !send(&self.stream_manager_sender, message) {
+                            return Ok(ConnectionAction::Disconnect);
+                        }
                     },
 
                     _ => {
@@ -433,9 +463,13 @@ impl Connection {
             ServerSessionEvent::PublishStreamFinished {..} => {
                 match &self.state {
                     State::Publishing {..} => {
-                        self.stream_manager_sender.send(StreamManagerMessage::PublishFinished {
+                        let message = StreamManagerMessage::PublishFinished {
                             connection_id: self.id,
-                        })?;
+                        };
+
+                        if !send(&self.stream_manager_sender, message) {
+                            return Ok(ConnectionAction::Disconnect);
+                        }
                     },
 
                     _ => {
@@ -464,7 +498,10 @@ async fn connection_reader(connection_id: i32, mut stream: ReadHalf<TcpStream>, 
         }
 
         let bytes = buffer.split_off(bytes_read);
-        manager.send(buffer.freeze())?;
+        if !send(&manager, buffer.freeze()) {
+            break;
+        }
+
         buffer = bytes;
     }
 

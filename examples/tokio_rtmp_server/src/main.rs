@@ -1,4 +1,5 @@
 use tokio::net::{TcpListener};
+use tokio::sync::mpsc::UnboundedSender;
 use std::future::Future;
 use std::fmt::Display;
 use crate::connection::Connection;
@@ -25,13 +26,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
-fn spawn<F>(future: F)
+fn spawn<F, E>(future: F)
 where
-    F: Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send  + 'static,
+    F: Future<Output = Result<(), E>> + Send  + 'static,
+    E: Display,
 {
     tokio::task::spawn(async {
         if let Err(error) = future.await {
             eprintln!("{}", error);
         }
     });
+}
+
+/// Sends a message over an unbounded receiver and returns true if the message was sent
+/// or false if the channel has been closed.
+fn send<T>(sender: &UnboundedSender<T>, message: T) -> bool {
+    match sender.send(message) {
+        Ok(_) => true,
+        Err(_) => false,
+    }
 }
