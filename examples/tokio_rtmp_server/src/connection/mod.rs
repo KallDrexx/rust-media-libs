@@ -514,7 +514,7 @@ async fn connection_writer(connection_id: i32,
                            mut packets_to_send: mpsc::UnboundedReceiver<Packet>)
                            -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
-    const BACKLOG_THRESHOLD: usize = 20;
+    const BACKLOG_THRESHOLD: usize = 100;
     let mut send_queue = VecDeque::new();
 
     loop {
