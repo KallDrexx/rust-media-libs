@@ -1,6 +1,6 @@
 use bytes::Bytes;
-use rml_rtmp::time::RtmpTimestamp;
 use rml_rtmp::sessions::StreamMetadata;
+use rml_rtmp::time::RtmpTimestamp;
 
 #[derive(Debug)]
 pub enum ConnectionMessage {

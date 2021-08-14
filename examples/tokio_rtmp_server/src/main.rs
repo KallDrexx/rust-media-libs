@@ -1,8 +1,8 @@
-use tokio::net::{TcpListener};
-use tokio::sync::mpsc::UnboundedSender;
-use std::future::Future;
-use std::fmt::Display;
 use crate::connection::Connection;
+use std::fmt::Display;
+use std::future::Future;
+use tokio::net::TcpListener;
+use tokio::sync::mpsc::UnboundedSender;
 
 mod connection;
 mod stream_manager;
@@ -19,7 +19,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (stream, connection_info) = listener.accept().await?;
 
         let connection = Connection::new(current_id, manager_sender.clone());
-        println!("Connection {}: Connection received from {}", current_id, connection_info.ip());
+        println!(
+            "Connection {}: Connection received from {}",
+            current_id,
+            connection_info.ip()
+        );
 
         spawn(connection.start_handshake(stream));
         current_id = current_id + 1;
@@ -28,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 fn spawn<F, E>(future: F)
 where
-    F: Future<Output = Result<(), E>> + Send  + 'static,
+    F: Future<Output = Result<(), E>> + Send + 'static,
     E: Display,
 {
     tokio::task::spawn(async {

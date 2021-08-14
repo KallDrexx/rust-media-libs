@@ -1,8 +1,8 @@
-use tokio::sync::mpsc;
+use super::ConnectionMessage;
 use bytes::Bytes;
 use rml_rtmp::sessions::StreamMetadata;
 use rml_rtmp::time::RtmpTimestamp;
-use super::ConnectionMessage;
+use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub enum StreamManagerMessage {
@@ -49,5 +49,5 @@ pub enum StreamManagerMessage {
 
     PlaybackFinished {
         connection_id: i32,
-    }
+    },
 }
