@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use rml_amf0::Amf0Value;
-use ::sessions::StreamMetadata;
-use ::time::RtmpTimestamp;
+use sessions::StreamMetadata;
+use time::RtmpTimestamp;
 
 /// Events that can be raised by the client session so that custom business logic can be written
 /// to react to it
@@ -11,9 +11,7 @@ pub enum ClientSessionEvent {
     ConnectionRequestAccepted,
 
     /// The server has rejected the connection request
-    ConnectionRequestRejected {
-        description: String,
-    },
+    ConnectionRequestRejected { description: String },
 
     /// The server has accepted our request to play video back from a stream key
     PlaybackRequestAccepted,
@@ -22,9 +20,7 @@ pub enum ClientSessionEvent {
     PublishRequestAccepted,
 
     /// The server has sent over new metadata for the stream
-    StreamMetadataReceived {
-        metadata: StreamMetadata,
-    },
+    StreamMetadataReceived { metadata: StreamMetadata },
 
     /// The server has sent over video data for the stream
     VideoDataReceived {
@@ -55,17 +51,11 @@ pub enum ClientSessionEvent {
 
     /// The server sent an `onStatus` message with a `code` property that we don't know
     /// how to handle.
-    UnhandleableOnStatusCode {
-        code: String,
-    },
+    UnhandleableOnStatusCode { code: String },
 
     /// The client has sent an acknowledgement that they have received the specified number of bytes
-    AcknowledgementReceived {
-        bytes_received: u32,
-    },
+    AcknowledgementReceived { bytes_received: u32 },
 
     /// The client has responded to a ping request
-    PingResponseReceived {
-        timestamp: RtmpTimestamp,
-    },
+    PingResponseReceived { timestamp: RtmpTimestamp },
 }

@@ -1,8 +1,8 @@
 //! Errors that can occur during the handshaking process
 
-use std::io;
-use std::fmt;
 use failure::{Backtrace, Fail};
+use std::fmt;
+use std::io;
 
 /// Data pertaining to errors that occurred during the handshaking process.
 #[derive(Debug)]
@@ -52,7 +52,7 @@ pub enum HandshakeErrorKind {
 
     /// This occurs when an IO error is encountered while reading the input.
     #[fail(display = "_0")]
-    Io(#[cause] io::Error)
+    Io(#[cause] io::Error),
 }
 
 impl fmt::Display for HandshakeError {
@@ -79,6 +79,8 @@ impl From<HandshakeErrorKind> for HandshakeError {
 
 impl From<io::Error> for HandshakeError {
     fn from(error: io::Error) -> Self {
-        HandshakeError { kind: HandshakeErrorKind::Io(error) }
+        HandshakeError {
+            kind: HandshakeErrorKind::Io(error),
+        }
     }
 }

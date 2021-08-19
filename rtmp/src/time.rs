@@ -54,22 +54,22 @@
 //! assert!(time == 50);
 //! ```
 
-use std::ops::{Add, Sub};
+use std::cmp::{max, min, Ordering};
 use std::num::Wrapping;
-use std::cmp::{Ordering, max, min};
+use std::ops::{Add, Sub};
 
 /// The representation of a RTMP timestamp
 #[derive(Eq, PartialEq, Debug, Copy, Clone)]
 pub struct RtmpTimestamp {
     /// The time (as milliseconds from an unknown epoch) being represented by the timestamp
-    pub value: u32
+    pub value: u32,
 }
 
 impl RtmpTimestamp {
     /// Creates a new timestamp with the specified time value
     pub fn new(initial_value: u32) -> Self {
         RtmpTimestamp {
-            value: initial_value
+            value: initial_value,
         }
     }
 
@@ -83,7 +83,9 @@ impl Add for RtmpTimestamp {
     type Output = RtmpTimestamp;
 
     fn add(self, other: RtmpTimestamp) -> Self {
-        RtmpTimestamp {value: add_values(self.value, other.value)}
+        RtmpTimestamp {
+            value: add_values(self.value, other.value),
+        }
     }
 }
 
@@ -91,7 +93,9 @@ impl Add<u32> for RtmpTimestamp {
     type Output = RtmpTimestamp;
 
     fn add(self, other: u32) -> Self {
-        RtmpTimestamp {value: add_values(self.value, other)}
+        RtmpTimestamp {
+            value: add_values(self.value, other),
+        }
     }
 }
 
@@ -99,7 +103,9 @@ impl Sub for RtmpTimestamp {
     type Output = RtmpTimestamp;
 
     fn sub(self, other: RtmpTimestamp) -> Self {
-        RtmpTimestamp {value: sub_values(self.value, other.value)}
+        RtmpTimestamp {
+            value: sub_values(self.value, other.value),
+        }
     }
 }
 
@@ -107,7 +113,9 @@ impl Sub<u32> for RtmpTimestamp {
     type Output = RtmpTimestamp;
 
     fn sub(self, other: u32) -> Self {
-        RtmpTimestamp {value: sub_values(self.value, other)}
+        RtmpTimestamp {
+            value: sub_values(self.value, other),
+        }
     }
 }
 
@@ -163,7 +171,7 @@ fn compare(value1: &u32, value2: &u32) -> Ordering {
     let difference = max_val - min_val;
     match difference <= MAX_ADJACENT_VALUE {
         true => value1.cmp(value2),
-        false => value2.cmp(value1)
+        false => value2.cmp(value1),
     }
 }
 
@@ -246,7 +254,11 @@ mod tests {
 
         assert!(time1 < time2, "time1 was not less than time2");
         assert!(time2 > time1, "time2 was not greater than time2");
-        assert_eq!(time1, RtmpTimestamp::new(50), "Two timestamps with the same time were not equal");
+        assert_eq!(
+            time1,
+            RtmpTimestamp::new(50),
+            "Two timestamps with the same time were not equal"
+        );
     }
 
     #[test]
@@ -255,8 +267,14 @@ mod tests {
         let time2 = RtmpTimestamp::new(4000000000);
         let time3 = RtmpTimestamp::new(3000000000);
 
-        assert!(time1 > time2, "10000 was not marked as greater than 4000000000");
-        assert!(time3 < time2, "4000000000 was not marked greater than 3000000000");
+        assert!(
+            time1 > time2,
+            "10000 was not marked as greater than 4000000000"
+        );
+        assert!(
+            time3 < time2,
+            "4000000000 was not marked greater than 3000000000"
+        );
     }
 
     #[test]

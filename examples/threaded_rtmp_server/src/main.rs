@@ -1,24 +1,24 @@
 extern crate bytes;
-extern crate slab;
 extern crate rml_rtmp;
+extern crate slab;
 
 mod connection;
 mod server;
 
-use std::collections::{HashSet};
+use connection::{Connection, ConnectionError, ReadResult};
+use server::{Server, ServerResult};
+use slab::Slab;
+use std::collections::HashSet;
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::thread;
-use slab::Slab;
-use ::connection::{Connection, ConnectionError, ReadResult};
-use ::server::{Server, ServerResult};
 
 fn main() {
     let address = "0.0.0.0:1935";
     let listener = TcpListener::bind(&address).unwrap();
 
     let (stream_sender, stream_receiver) = channel();
-    thread::spawn(|| {handle_connections(stream_receiver)});
+    thread::spawn(|| handle_connections(stream_receiver));
 
     println!("Listening for connections on {}", address);
     for stream in listener.incoming() {
@@ -58,41 +58,48 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
                 Err(ConnectionError::SocketClosed) => {
                     println!("Socket closed for id {}", connection_id);
                     ids_to_clear.push(*connection_id);
-                },
+                }
 
                 Err(error) => {
-                    println!("I/O error while reading connection {}: {:?}", connection_id, error);
+                    println!(
+                        "I/O error while reading connection {}: {:?}",
+                        connection_id, error
+                    );
                     ids_to_clear.push(*connection_id);
-                },
+                }
 
-                Ok(result) => {
-                    match result {
-                        ReadResult::NoBytesReceived => (),
-                        ReadResult::HandshakingInProgress => (),
-                        ReadResult::BytesReceived {buffer, byte_count} => {
-                            let mut server_results = match server.bytes_received(*connection_id, &buffer[..byte_count]) {
+                Ok(result) => match result {
+                    ReadResult::NoBytesReceived => (),
+                    ReadResult::HandshakingInProgress => (),
+                    ReadResult::BytesReceived { buffer, byte_count } => {
+                        let mut server_results =
+                            match server.bytes_received(*connection_id, &buffer[..byte_count]) {
                                 Ok(results) => results,
                                 Err(error) => {
                                     println!("Input caused the following server error: {}", error);
                                     ids_to_clear.push(*connection_id);
                                     continue;
-                                },
+                                }
                             };
 
-                            for result in server_results.drain(..) {
-                                match result {
-                                    ServerResult::OutboundPacket {target_connection_id, packet} => {
-                                        packets_to_write.push((target_connection_id, packet));
-                                    },
+                        for result in server_results.drain(..) {
+                            match result {
+                                ServerResult::OutboundPacket {
+                                    target_connection_id,
+                                    packet,
+                                } => {
+                                    packets_to_write.push((target_connection_id, packet));
+                                }
 
-                                    ServerResult::DisconnectConnection {connection_id: id_to_close} => {
-                                        ids_to_clear.push(id_to_close);
-                                    }
+                                ServerResult::DisconnectConnection {
+                                    connection_id: id_to_close,
+                                } => {
+                                    ids_to_clear.push(id_to_close);
                                 }
                             }
                         }
                     }
-                }
+                },
             }
         }
 

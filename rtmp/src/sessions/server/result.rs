@@ -1,6 +1,6 @@
-use ::chunk_io::Packet;
-use ::messages::MessagePayload;
 use super::events::ServerSessionEvent;
+use chunk_io::Packet;
+use messages::MessagePayload;
 
 /// A single result that is returned when a server session processes some bytes
 #[derive(PartialEq, Debug)]

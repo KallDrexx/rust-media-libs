@@ -1,7 +1,7 @@
-use std::fmt;
+use chunk_io::{ChunkDeserializationError, ChunkSerializationError};
 use failure::{Backtrace, Fail};
-use ::chunk_io::{ChunkSerializationError, ChunkDeserializationError};
-use ::messages::{MessageSerializationError, MessageDeserializationError};
+use messages::{MessageDeserializationError, MessageSerializationError};
+use std::fmt;
 
 /// Error state when a server session encounters an error
 #[derive(Debug)]
@@ -21,16 +21,25 @@ pub enum ServerSessionErrorKind {
     ChunkSerializationError(#[cause] ChunkSerializationError),
 
     /// Encountered when an error occurs while turning an RTMP message into an message payload
-    #[fail(display = "An error occurred while attempting to turn an RTMP message into a message payload: {}", _0)]
+    #[fail(
+        display = "An error occurred while attempting to turn an RTMP message into a message payload: {}",
+        _0
+    )]
     MessageSerializationError(#[cause] MessageSerializationError),
 
     /// Encountered when an error occurs while turning a message payload into an RTMP message
-    #[fail(display = "An error occurred while attempting to turn a message payload into an RTMP message: {}", _0)]
+    #[fail(
+        display = "An error occurred while attempting to turn a message payload into an RTMP message: {}",
+        _0
+    )]
     MessageDeserializationError(#[cause] MessageDeserializationError),
 
     /// A request id that was attempting to be accepted or rejected was not a known
     /// outstanding request.
-    #[fail(display = "Attempted to accept or reject request id {} but no outstanding requests have that id", _0)]
+    #[fail(
+        display = "Attempted to accept or reject request id {} but no outstanding requests have that id",
+        _0
+    )]
     InvalidOutstandingRequest(u32),
 
     /// A connection request was made without a valid RTMP app name
@@ -42,11 +51,11 @@ pub enum ServerSessionErrorKind {
     InvalidRequestId,
 
     /// An action was attempted to be performed on a inactive stream
-    #[fail(display = "The '{}' action was attempted on non-existant stream id {}", action, stream_id)]
-    ActionAttemptedOnInactiveStream {
-        action: String,
-        stream_id: u32,
-    }
+    #[fail(
+        display = "The '{}' action was attempted on non-existant stream id {}",
+        action, stream_id
+    )]
+    ActionAttemptedOnInactiveStream { action: String, stream_id: u32 },
 }
 
 impl fmt::Display for ServerSessionError {
@@ -67,24 +76,32 @@ impl Fail for ServerSessionError {
 
 impl From<ChunkSerializationError> for ServerSessionError {
     fn from(kind: ChunkSerializationError) -> Self {
-        ServerSessionError { kind: ServerSessionErrorKind::ChunkSerializationError(kind) }
+        ServerSessionError {
+            kind: ServerSessionErrorKind::ChunkSerializationError(kind),
+        }
     }
 }
 
 impl From<ChunkDeserializationError> for ServerSessionError {
     fn from(kind: ChunkDeserializationError) -> Self {
-        ServerSessionError { kind: ServerSessionErrorKind::ChunkDeserializationError(kind) }
+        ServerSessionError {
+            kind: ServerSessionErrorKind::ChunkDeserializationError(kind),
+        }
     }
 }
 
 impl From<MessageSerializationError> for ServerSessionError {
     fn from(kind: MessageSerializationError) -> Self {
-        ServerSessionError { kind: ServerSessionErrorKind::MessageSerializationError(kind) }
+        ServerSessionError {
+            kind: ServerSessionErrorKind::MessageSerializationError(kind),
+        }
     }
 }
 
 impl From<MessageDeserializationError> for ServerSessionError {
     fn from(kind: MessageDeserializationError) -> Self {
-        ServerSessionError { kind: ServerSessionErrorKind::MessageDeserializationError(kind) }
+        ServerSessionError {
+            kind: ServerSessionErrorKind::MessageDeserializationError(kind),
+        }
     }
 }

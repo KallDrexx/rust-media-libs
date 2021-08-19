@@ -10,7 +10,7 @@ pub enum StreamState {
 
     Playing {
         stream_key: String,
-    }
+    },
 }
 
 pub struct ActiveStream {

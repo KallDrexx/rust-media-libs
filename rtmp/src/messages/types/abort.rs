@@ -1,9 +1,9 @@
-use std::io::Cursor;
-use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
+use std::io::Cursor;
 
-use ::messages::{MessageDeserializationError, MessageSerializationError};
-use ::messages::{RtmpMessage};
+use messages::RtmpMessage;
+use messages::{MessageDeserializationError, MessageSerializationError};
 
 pub fn serialize(stream_id: u32) -> Result<Bytes, MessageSerializationError> {
     let mut cursor = Cursor::new(Vec::new());
@@ -17,18 +17,18 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
     let mut cursor = Cursor::new(data);
 
     Ok(RtmpMessage::Abort {
-        stream_id: cursor.read_u32::<BigEndian>()?
+        stream_id: cursor.read_u32::<BigEndian>()?,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{serialize, deserialize};
-    use std::io::Cursor;
+    use super::{deserialize, serialize};
     use byteorder::{BigEndian, WriteBytesExt};
     use bytes::Bytes;
+    use std::io::Cursor;
 
-    use ::messages::{RtmpMessage};
+    use messages::RtmpMessage;
 
     #[test]
     fn can_serialize_message() {
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn can_deserialize_message() {
         let id = 532;
-        let expected = RtmpMessage::Abort{stream_id: id};
+        let expected = RtmpMessage::Abort { stream_id: id };
 
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_u32::<BigEndian>(id).unwrap();

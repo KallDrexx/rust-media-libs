@@ -1,11 +1,11 @@
-use ::time::RtmpTimestamp;
+use time::RtmpTimestamp;
 
 #[derive(PartialEq, Debug)]
 pub enum ChunkHeaderFormat {
-    Full, // Format 0
+    Full,                            // Format 0
     TimeDeltaWithoutMessageStreamId, // Format 1
-    TimeDeltaOnly, // Format 2
-    Empty // Format 3
+    TimeDeltaOnly,                   // Format 2
+    Empty,                           // Format 3
 }
 
 #[derive(Debug)]

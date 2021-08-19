@@ -16,7 +16,7 @@ impl ClientSessionConfig {
             playback_buffer_length_ms: 2_000,
             window_ack_size: 2_500_000,
             chunk_size: 4096,
-            tc_url: None
+            tc_url: None,
         }
     }
 }

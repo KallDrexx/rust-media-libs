@@ -1,9 +1,9 @@
-use std::io::Cursor;
-use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
+use std::io::Cursor;
 
-use ::messages::{MessageDeserializationError, MessageSerializationError};
-use ::messages::{RtmpMessage};
+use messages::RtmpMessage;
+use messages::{MessageDeserializationError, MessageSerializationError};
 
 pub fn serialize(sequence_number: u32) -> Result<Bytes, MessageSerializationError> {
     let mut cursor = Cursor::new(Vec::new());
@@ -17,18 +17,18 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
     let mut cursor = Cursor::new(data);
 
     Ok(RtmpMessage::Acknowledgement {
-        sequence_number: cursor.read_u32::<BigEndian>()?
+        sequence_number: cursor.read_u32::<BigEndian>()?,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{serialize, deserialize};
-    use std::io::Cursor;
+    use super::{deserialize, serialize};
     use byteorder::{BigEndian, WriteBytesExt};
     use bytes::Bytes;
+    use std::io::Cursor;
 
-    use ::messages::{RtmpMessage};
+    use messages::RtmpMessage;
 
     #[test]
     fn can_serialize_message() {
@@ -50,7 +50,9 @@ mod tests {
         let bytes = Bytes::from(cursor.into_inner());
         let result = deserialize(bytes).unwrap();
 
-        let expected = RtmpMessage::Acknowledgement { sequence_number: number };
+        let expected = RtmpMessage::Acknowledgement {
+            sequence_number: number,
+        };
         assert_eq!(expected, result);
     }
 }

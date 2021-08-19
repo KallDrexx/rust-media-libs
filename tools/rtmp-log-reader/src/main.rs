@@ -1,10 +1,10 @@
 extern crate rml_rtmp;
 
-use std::env;
-use std::io::Read;
-use std::fs::File;
-use rml_rtmp::chunk_io::{ChunkDeserializer};
+use rml_rtmp::chunk_io::ChunkDeserializer;
 use rml_rtmp::messages::RtmpMessage;
+use std::env;
+use std::fs::File;
+use std::io::Read;
 
 fn main() {
     println!("RTMP Log reader");
@@ -52,13 +52,15 @@ fn main() {
                 None => break,
             };
 
-            println!("Message: {}   Timestamp: {}   Type: {}    Stream_Id: {}   index: {} ({:x})",
-                     message_number,
-                     payload.timestamp.value,
-                     payload.type_id,
-                     payload.message_stream_id,
-                     last_message_end_index,
-                     last_message_end_index);
+            println!(
+                "Message: {}   Timestamp: {}   Type: {}    Stream_Id: {}   index: {} ({:x})",
+                message_number,
+                payload.timestamp.value,
+                payload.type_id,
+                payload.message_stream_id,
+                last_message_end_index,
+                last_message_end_index
+            );
 
             let message = payload.to_rtmp_message().unwrap();
             match message {

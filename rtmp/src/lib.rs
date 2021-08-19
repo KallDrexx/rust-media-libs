@@ -65,23 +65,25 @@ These higher level structs are meant to be integrated *AFTER* a successful hands
 
 */
 
-extern crate failure;
 extern crate byteorder;
 extern crate bytes;
-extern crate rand;
+extern crate failure;
 extern crate hmac;
-extern crate sha2;
+extern crate rand;
 extern crate rml_amf0;
+extern crate sha2;
 
 #[cfg(test)]
 #[macro_use]
 mod test_utils {
-    #[macro_use] pub mod assert_vec_match_macro;
-    #[macro_use] pub mod assert_vec_contains_macro;
+    #[macro_use]
+    pub mod assert_vec_match_macro;
+    #[macro_use]
+    pub mod assert_vec_contains_macro;
 }
 
-pub mod time;
+pub mod chunk_io;
 pub mod handshake;
 pub mod messages;
-pub mod chunk_io;
 pub mod sessions;
+pub mod time;

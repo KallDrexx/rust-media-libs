@@ -1,4 +1,3 @@
-
 /// The configuration options that govern how a RTMP server session should operate
 #[derive(Clone)]
 pub struct ServerSessionConfig {
@@ -19,4 +18,3 @@ impl ServerSessionConfig {
         }
     }
 }
-

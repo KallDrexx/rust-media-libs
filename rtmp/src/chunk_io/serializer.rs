@@ -1,11 +1,11 @@
-use std::collections::{HashMap};
-use std::cmp::min;
-use std::io::{Cursor, Write};
-use byteorder::{BigEndian, WriteBytesExt, LittleEndian};
-use ::messages::{MessagePayload, RtmpMessage};
-use ::chunk_io::{ChunkSerializationError, ChunkSerializationErrorKind};
-use ::time::RtmpTimestamp;
 use super::chunk_header::{ChunkHeader, ChunkHeaderFormat};
+use byteorder::{BigEndian, LittleEndian, WriteBytesExt};
+use chunk_io::{ChunkSerializationError, ChunkSerializationErrorKind};
+use messages::{MessagePayload, RtmpMessage};
+use std::cmp::min;
+use std::collections::HashMap;
+use std::io::{Cursor, Write};
+use time::RtmpTimestamp;
 
 const INITIAL_MAX_CHUNK_SIZE: u32 = 128;
 const MAX_INITIAL_TIMESTAMP: u32 = 16777215;
@@ -18,7 +18,7 @@ const MAX_INITIAL_TIMESTAMP: u32 = 16777215;
 #[derive(Debug, PartialEq)]
 pub struct Packet {
     pub bytes: Vec<u8>,
-    pub can_be_dropped: bool
+    pub can_be_dropped: bool,
 }
 
 /// Allows serializing RTMP messages into RTMP chunks.
@@ -49,16 +49,20 @@ impl ChunkSerializer {
     /// affect every chunk you send out from here on out.  Therefore, when this method is called
     /// we automatically serialize a `SetChunkSize` RTMP message to be sent to the peer.  This
     /// packet *must* be sent and cannot be ignored.
-    pub fn set_max_chunk_size(&mut self, new_size: u32, time: RtmpTimestamp) -> Result<Packet, ChunkSerializationError> {
+    pub fn set_max_chunk_size(
+        &mut self,
+        new_size: u32,
+        time: RtmpTimestamp,
+    ) -> Result<Packet, ChunkSerializationError> {
         if new_size > 2147483647 {
-            return Err(ChunkSerializationError{
-                kind:ChunkSerializationErrorKind::InvalidMaxChunkSize {
-                    attempted_chunk_size: new_size
-                }
+            return Err(ChunkSerializationError {
+                kind: ChunkSerializationErrorKind::InvalidMaxChunkSize {
+                    attempted_chunk_size: new_size,
+                },
             });
         }
 
-        let set_chunk_size_message = RtmpMessage::SetChunkSize {size: new_size};
+        let set_chunk_size_message = RtmpMessage::SetChunkSize { size: new_size };
         let message_payload = MessagePayload::from_rtmp_message(set_chunk_size_message, time, 0)?;
         let packet = self.serialize(&message_payload, true, false)?;
 
@@ -86,9 +90,18 @@ impl ChunkSerializer {
     /// there's not enough bandwidth to keep the stream in real time) or if it should be enqueued
     /// even if backlogged.   Setting this to `true` makes sure that if the packet is dropped that
     /// the receiver will not have deserialization problems on any subsequent RTMP chunks.
-    pub fn serialize(&mut self, message: &MessagePayload, force_uncompressed: bool, can_be_dropped: bool) -> Result<Packet, ChunkSerializationError> {
+    pub fn serialize(
+        &mut self,
+        message: &MessagePayload,
+        force_uncompressed: bool,
+        can_be_dropped: bool,
+    ) -> Result<Packet, ChunkSerializationError> {
         if message.data.len() > 16777215 {
-            return Err(ChunkSerializationError{kind: ChunkSerializationErrorKind::MessageTooLong {size: message.data.len() as u32}});
+            return Err(ChunkSerializationError {
+                kind: ChunkSerializationErrorKind::MessageTooLong {
+                    size: message.data.len() as u32,
+                },
+            });
         }
 
         let mut bytes = Cursor::new(Vec::new());
@@ -104,7 +117,10 @@ impl ChunkSerializer {
             }
 
             let remaining_length = message.data.len() - start_index;
-            let end_index = min(start_index + self.max_chunk_size as usize, start_index + remaining_length);
+            let end_index = min(
+                start_index + self.max_chunk_size as usize,
+                start_index + remaining_length,
+            );
 
             slices.push(&message.data[start_index..end_index]);
 
@@ -112,16 +128,31 @@ impl ChunkSerializer {
         }
 
         for (idx, slice) in slices.into_iter().enumerate() {
-            self.add_chunk(&mut bytes, force_uncompressed, message, idx > 0, slice, can_be_dropped)?;
+            self.add_chunk(
+                &mut bytes,
+                force_uncompressed,
+                message,
+                idx > 0,
+                slice,
+                can_be_dropped,
+            )?;
         }
 
         Ok(Packet {
             bytes: bytes.into_inner(),
-            can_be_dropped
+            can_be_dropped,
         })
     }
 
-    fn add_chunk(&mut self, bytes: &mut Cursor<Vec<u8>>,force_uncompressed: bool, message: &MessagePayload, continued_chunk: bool, data_to_write: &[u8], can_be_dropped: bool) -> Result<(), ChunkSerializationError> {
+    fn add_chunk(
+        &mut self,
+        bytes: &mut Cursor<Vec<u8>>,
+        force_uncompressed: bool,
+        message: &MessagePayload,
+        continued_chunk: bool,
+        data_to_write: &[u8],
+        can_be_dropped: bool,
+    ) -> Result<(), ChunkSerializationError> {
         let mut header = ChunkHeader {
             chunk_stream_id: get_csid_for_message_type(message.type_id),
             timestamp: message.timestamp,
@@ -132,43 +163,46 @@ impl ChunkSerializer {
             can_be_dropped,
         };
 
-
         let header_format = if force_uncompressed {
             ChunkHeaderFormat::Full
         } else {
             match self.previous_headers.get(&header.chunk_stream_id) {
                 None => ChunkHeaderFormat::Full,
                 Some(ref previous_header) => {
-                    if continued_chunk { 
+                    if continued_chunk {
                         //  https://github.com/melpon/rfc/blob/master/rtmp.md#53124-type-3
                         //  Continued chunks should use Format Type 3.
                         //  Streaming into Twitch was breaking when a payload exceeded the max chunk size
                         //  Continued chunks may add extended timestamp, set timestamp field as previous timestamp_field
                         header.timestamp_field = previous_header.timestamp_field;
                         ChunkHeaderFormat::Empty
-
                     } else if previous_header.can_be_dropped {
                         // If the previous packet was able to be dropped, we don't know if it was (or will be)
                         // therefore the next packet must be a type 0 chunk as a precaution.  Otherwise
                         // we risk the peer not being able to deserialize this packet.
                         ChunkHeaderFormat::Full
-
                     } else {
                         // TODO: Update to support rtmp time wrap-around
-                        header.timestamp_field = (header.timestamp - previous_header.timestamp).value;
+                        header.timestamp_field =
+                            (header.timestamp - previous_header.timestamp).value;
                         get_header_format(&mut header, previous_header)
                     }
-                },
+                }
             }
         };
 
         if header_format == ChunkHeaderFormat::Full {
             header.timestamp_field = header.timestamp.value;
-        } 
+        }
 
         add_basic_header(bytes, &header_format, header.chunk_stream_id)?;
         add_initial_timestamp(bytes, &header_format, &header)?;
-        add_message_length_and_type_id(bytes, &header_format, header.message_length, header.message_type_id)?;
+        add_message_length_and_type_id(
+            bytes,
+            &header_format,
+            header.message_length,
+            header.message_type_id,
+        )?;
         add_message_stream_id(bytes, &header_format, header.message_stream_id)?;
         add_extended_timestamp(bytes, &header)?;
         add_message_payload(bytes, data_to_write)?;
@@ -178,22 +212,26 @@ impl ChunkSerializer {
     }
 }
 
-fn add_basic_header(bytes: &mut dyn Write, format: &ChunkHeaderFormat, csid: u32) -> Result<(), ChunkSerializationError> {
+fn add_basic_header(
+    bytes: &mut dyn Write,
+    format: &ChunkHeaderFormat,
+    csid: u32,
+) -> Result<(), ChunkSerializationError> {
     if csid <= 1 || csid >= 65600 {
         panic!("Attempted to serialize an RTMP chunk with a csid of {}, but only csids between 2 and 65600 are allowed", csid);
     }
 
     let format_mask = match *format {
-        ChunkHeaderFormat::Full                            => 0b00000000,
+        ChunkHeaderFormat::Full => 0b00000000,
         ChunkHeaderFormat::TimeDeltaWithoutMessageStreamId => 0b01000000,
-        ChunkHeaderFormat::TimeDeltaOnly                   => 0b10000000,
-        ChunkHeaderFormat::Empty                           => 0b11000000
+        ChunkHeaderFormat::TimeDeltaOnly => 0b10000000,
+        ChunkHeaderFormat::Empty => 0b11000000,
     };
 
     let mut first_byte = match csid {
-        x if x <= 63             => x as u8,
+        x if x <= 63 => x as u8,
         x if x >= 64 && x <= 319 => 0,
-        _                        => 1
+        _ => 1,
     };
 
     first_byte = first_byte | format_mask;
@@ -203,7 +241,11 @@ fn add_basic_header(bytes: &mut dyn Write, format: &ChunkHeaderFormat, csid: u32
     Ok(())
 }
 
-fn add_initial_timestamp(bytes: &mut Cursor<Vec<u8>>, format: &ChunkHeaderFormat, header: &ChunkHeader) -> Result<(), ChunkSerializationError> {
+fn add_initial_timestamp(
+    bytes: &mut Cursor<Vec<u8>>,
+    format: &ChunkHeaderFormat,
+    header: &ChunkHeader,
+) -> Result<(), ChunkSerializationError> {
     if *format == ChunkHeaderFormat::Empty {
         return Ok(());
     }
@@ -214,7 +256,12 @@ fn add_initial_timestamp(bytes: &mut Cursor<Vec<u8>>, format: &ChunkHeaderFormat
     Ok(())
 }
 
-fn add_message_length_and_type_id(bytes: &mut Cursor<Vec<u8>>, format: &ChunkHeaderFormat, length: u32, type_id: u8) -> Result<(), ChunkSerializationError> {
+fn add_message_length_and_type_id(
+    bytes: &mut Cursor<Vec<u8>>,
+    format: &ChunkHeaderFormat,
+    length: u32,
+    type_id: u8,
+) -> Result<(), ChunkSerializationError> {
     if *format == ChunkHeaderFormat::Empty || *format == ChunkHeaderFormat::TimeDeltaOnly {
         return Ok(());
     }
@@ -224,7 +271,11 @@ fn add_message_length_and_type_id(bytes: &mut Cursor<Vec<u8>>, format: &ChunkHea
     Ok(())
 }
 
-fn add_message_stream_id(bytes: &mut dyn Write, format: &ChunkHeaderFormat, stream_id: u32) -> Result<(), ChunkSerializationError> {
+fn add_message_stream_id(
+    bytes: &mut dyn Write,
+    format: &ChunkHeaderFormat,
+    stream_id: u32,
+) -> Result<(), ChunkSerializationError> {
     if *format != ChunkHeaderFormat::Full {
         return Ok(());
     }
@@ -233,8 +284,10 @@ fn add_message_stream_id(bytes: &mut dyn Write, format: &ChunkHeaderFormat, stre
     Ok(())
 }
 
-fn add_extended_timestamp(bytes: &mut dyn Write, header: &ChunkHeader) -> Result<(), ChunkSerializationError> {
-
+fn add_extended_timestamp(
+    bytes: &mut dyn Write,
+    header: &ChunkHeader,
+) -> Result<(), ChunkSerializationError> {
     if header.timestamp_field < MAX_INITIAL_TIMESTAMP {
         return Ok(());
     }
@@ -253,19 +306,24 @@ fn get_csid_for_message_type(message_type_id: u8) -> u32 {
     // to utilize header compression by spreading them across chunk streams
     match message_type_id {
         1 | 2 | 3 | 4 | 5 | 6 => 2,
-        18 | 19               => 3,
-        9                     => 4,
-        8                     => 5,
-        _                     => 6
+        18 | 19 => 3,
+        9 => 4,
+        8 => 5,
+        _ => 6,
     }
 }
 
-fn get_header_format(current_header: &mut ChunkHeader, previous_header: &ChunkHeader) -> ChunkHeaderFormat {
+fn get_header_format(
+    current_header: &mut ChunkHeader,
+    previous_header: &ChunkHeader,
+) -> ChunkHeaderFormat {
     if current_header.message_stream_id != previous_header.message_stream_id {
         return ChunkHeaderFormat::Full;
     }
 
-    if current_header.message_type_id != previous_header.message_type_id || current_header.message_length != previous_header.message_length {
+    if current_header.message_type_id != previous_header.message_type_id
+        || current_header.message_length != previous_header.message_length
+    {
         return ChunkHeaderFormat::TimeDeltaWithoutMessageStreamId;
     }
 
@@ -279,10 +337,10 @@ fn get_header_format(current_header: &mut ChunkHeader, previous_header: &ChunkHe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
-    use ::time::RtmpTimestamp;
-    use std::io::{Cursor, Read};
     use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+    use bytes::Bytes;
+    use std::io::{Cursor, Read};
+    use time::RtmpTimestamp;
 
     #[test]
     fn type_0_chunk_for_first_message_with_small_timestamp() {
@@ -297,16 +355,36 @@ mod tests {
         let packet = serializer.serialize(&message1, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b00000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 72, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 4, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b00000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            72,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            4,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 50, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected message stream id");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            12,
+            "Unexpected message stream id"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &message1.data[..], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &message1.data[..],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
@@ -322,21 +400,46 @@ mod tests {
         let packet = serializer.serialize(&message1, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b00000000 , "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 16777215, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 4, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b00000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            16777215,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            4,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 50, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected message stream id");
-        assert_eq!(cursor.read_u32::<BigEndian>().unwrap(), 16777216, "Unexpected extended timestamp");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            12,
+            "Unexpected message stream id"
+        );
+        assert_eq!(
+            cursor.read_u32::<BigEndian>().unwrap(),
+            16777216,
+            "Unexpected extended timestamp"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], [1_u8, 2_u8, 3_u8, 4_u8], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            [1_u8, 2_u8, 3_u8, 4_u8],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
-    fn type_1_chunk_for_second_message_with_same_stream_id_and_different_message_length_and_different_type_id_and_small_timestamp() {
+    fn type_1_chunk_for_second_message_with_same_stream_id_and_different_message_length_and_different_type_id_and_small_timestamp(
+    ) {
         let message1 = MessagePayload {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
@@ -356,19 +459,36 @@ mod tests {
         let packet = serializer.serialize(&message2, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b01000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 10, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 3, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b01000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            10,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            3,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 51, "Unexpected type id");
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 3, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &[1_u8, 2_u8, 3_u8], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &[1_u8, 2_u8, 3_u8],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
-    fn type_1_chunk_for_second_message_with_same_stream_id_and_different_message_length_and_different_type_id_and_extended_timestamp() {
+    fn type_1_chunk_for_second_message_with_same_stream_id_and_different_message_length_and_different_type_id_and_extended_timestamp(
+    ) {
         let message1 = MessagePayload {
             timestamp: RtmpTimestamp::new(10),
             type_id: 50,
@@ -388,20 +508,41 @@ mod tests {
         let packet = serializer.serialize(&message2, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b01000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 16777215, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 3, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b01000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            16777215,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            3,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 51, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<BigEndian>().unwrap(), 16777216, "Unexpected extended timestamp");
+        assert_eq!(
+            cursor.read_u32::<BigEndian>().unwrap(),
+            16777216,
+            "Unexpected extended timestamp"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 3, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &[1_u8, 2_u8, 3_u8], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &[1_u8, 2_u8, 3_u8],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
-    fn type_2_chunk_for_second_message_with_same_stream_id_and_same_message_length_and_same_type_id_and_small_timestamp() {
+    fn type_2_chunk_for_second_message_with_same_stream_id_and_same_message_length_and_same_type_id_and_small_timestamp(
+    ) {
         let message1 = MessagePayload {
             timestamp: RtmpTimestamp::new(72),
             type_id: 50,
@@ -421,17 +562,30 @@ mod tests {
         let packet = serializer.serialize(&message2, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b10000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 10, "Unexpected timestamp value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b10000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            10,
+            "Unexpected timestamp value"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &[5_u8, 6_u8, 7_u8, 8_u8], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &[5_u8, 6_u8, 7_u8, 8_u8],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
-    fn type_2_chunk_for_second_message_with_same_stream_id_and_same_message_length_and_same_type_id_and_extended_timestamp() {
+    fn type_2_chunk_for_second_message_with_same_stream_id_and_same_message_length_and_same_type_id_and_extended_timestamp(
+    ) {
         let message1 = MessagePayload {
             timestamp: RtmpTimestamp::new(10),
             type_id: 50,
@@ -451,14 +605,30 @@ mod tests {
         let packet = serializer.serialize(&message2, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b10000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 16777215, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u32::<BigEndian>().unwrap(), 16777216, "Unexpected extended timestamp");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b10000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            16777215,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u32::<BigEndian>().unwrap(),
+            16777216,
+            "Unexpected extended timestamp"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &[5_u8, 6_u8, 7_u8, 8_u8], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &[5_u8, 6_u8, 7_u8, 8_u8],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
@@ -490,12 +660,20 @@ mod tests {
         let packet = serializer.serialize(&message3, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b11000000, "Unexpected csid value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b11000000,
+            "Unexpected csid value"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &[9_u8, 10_u8, 11_u8, 12_u8], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &[9_u8, 10_u8, 11_u8, 12_u8],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
@@ -519,16 +697,36 @@ mod tests {
         let packet = serializer.serialize(&message2, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 2 | 0b00000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 82, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 4, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            2 | 0b00000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            82,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            4,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 1, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected message stream id");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            12,
+            "Unexpected message stream id"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &[6_u8, 7_u8, 8_u8, 9_u8], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &[6_u8, 7_u8, 8_u8, 9_u8],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
@@ -552,16 +750,36 @@ mod tests {
         let packet = serializer.serialize(&message2, true, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b00000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 82, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 4, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b00000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            82,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            4,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 50, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected message stream id");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            12,
+            "Unexpected message stream id"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &[5_u8, 6_u8, 7_u8, 8_u8], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &[5_u8, 6_u8, 7_u8, 8_u8],
+            "Unexpected payload contents"
+        );
     }
 
     #[test]
@@ -585,42 +803,91 @@ mod tests {
         };
 
         let mut serializer = ChunkSerializer::new();
-        serializer.set_max_chunk_size(75, RtmpTimestamp::new(0)).unwrap();
+        serializer
+            .set_max_chunk_size(75, RtmpTimestamp::new(0))
+            .unwrap();
 
         let packet = serializer.serialize(&message1, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b00000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 72, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 100, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b00000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            72,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            100,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 50, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected message stream id");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            12,
+            "Unexpected message stream id"
+        );
 
         let mut payload_bytes = [0_u8; 75];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 75, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &([11_u8; 75])[..], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &([11_u8; 75])[..],
+            "Unexpected payload contents"
+        );
 
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b11000000, "Unexpected 2nd csid value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b11000000,
+            "Unexpected 2nd csid value"
+        );
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 25, "Unexpected 2nd payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &([22_u8; 25])[..], "Unexpected 2nd payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &([22_u8; 25])[..],
+            "Unexpected 2nd payload contents"
+        );
 
         let packet = serializer.serialize(&message2, false, false).unwrap();
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b10000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 1, "Unexpected timestamp value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b10000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            1,
+            "Unexpected timestamp value"
+        );
 
         let mut payload_bytes = [0_u8; 75];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 75, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &([11_u8; 75])[..], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &([11_u8; 75])[..],
+            "Unexpected payload contents"
+        );
 
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b11000000, "Unexpected chunk format");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b11000000,
+            "Unexpected chunk format"
+        );
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 25, "Unexpected 2nd payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &([22_u8; 25])[..], "Unexpected 2nd payload contents");
-
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &([22_u8; 25])[..],
+            "Unexpected 2nd payload contents"
+        );
     }
 
     #[test]
@@ -638,42 +905,102 @@ mod tests {
         };
 
         let mut serializer = ChunkSerializer::new();
-        serializer.set_max_chunk_size(75, RtmpTimestamp::new(0)).unwrap();
+        serializer
+            .set_max_chunk_size(75, RtmpTimestamp::new(0))
+            .unwrap();
 
         let packet = serializer.serialize(&message1, false, false).unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b00000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), MAX_INITIAL_TIMESTAMP, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 100, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b00000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            MAX_INITIAL_TIMESTAMP,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            100,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 50, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected message stream id");
-        assert_eq!(cursor.read_u32::<BigEndian>().unwrap(), timestamp_value, "Unexpected extended timestamp value");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            12,
+            "Unexpected message stream id"
+        );
+        assert_eq!(
+            cursor.read_u32::<BigEndian>().unwrap(),
+            timestamp_value,
+            "Unexpected extended timestamp value"
+        );
 
         let mut payload_bytes = [0_u8; 75];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 75, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &([11_u8; 75])[..], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &([11_u8; 75])[..],
+            "Unexpected payload contents"
+        );
 
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b11000000, "Unexpected 2nd csid value");
-        assert_eq!(cursor.read_u32::<BigEndian>().unwrap(), timestamp_value, "Unexpected extended timestamp value on second chunk");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b11000000,
+            "Unexpected 2nd csid value"
+        );
+        assert_eq!(
+            cursor.read_u32::<BigEndian>().unwrap(),
+            timestamp_value,
+            "Unexpected extended timestamp value on second chunk"
+        );
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 25, "Unexpected 2nd payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &([22_u8; 25])[..], "Unexpected 2nd payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &([22_u8; 25])[..],
+            "Unexpected 2nd payload contents"
+        );
     }
 
     #[test]
     fn changing_size_returns_set_chunk_size_outbound_message() {
         let mut serializer = ChunkSerializer::new();
-        let packet = serializer.set_max_chunk_size(75, RtmpTimestamp::new(152)).unwrap();
+        let packet = serializer
+            .set_max_chunk_size(75, RtmpTimestamp::new(152))
+            .unwrap();
 
         let mut cursor = Cursor::new(packet.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 2 | 0b00000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 152, "Unexpected timestamp");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 4, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            2 | 0b00000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            152,
+            "Unexpected timestamp"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            4,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 1, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 0, "Unexpected message stream id");
-        assert_eq!(cursor.read_u32::<BigEndian>().unwrap(), 75, "Unexpected chunk size");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            0,
+            "Unexpected message stream id"
+        );
+        assert_eq!(
+            cursor.read_u32::<BigEndian>().unwrap(),
+            75,
+            "Unexpected chunk size"
+        );
     }
 
     #[test]
@@ -696,30 +1023,76 @@ mod tests {
         let packet1 = serializer.serialize(&message1, false, true).unwrap();
 
         let mut cursor = Cursor::new(packet1.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b00000000, "Unexpected csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 72, "Unexpected timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 4, "Unexpected message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b00000000,
+            "Unexpected csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            72,
+            "Unexpected timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            4,
+            "Unexpected message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 50, "Unexpected type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected message stream id");
-        assert_eq!(packet1.can_be_dropped, true, "First packet was expected to be droppable");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            12,
+            "Unexpected message stream id"
+        );
+        assert_eq!(
+            packet1.can_be_dropped, true,
+            "First packet was expected to be droppable"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &message1.data[..], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &message1.data[..],
+            "Unexpected payload contents"
+        );
 
         let packet2 = serializer.serialize(&message2, false, false).unwrap();
         let mut cursor = Cursor::new(packet2.bytes);
-        assert_eq!(cursor.read_u8().unwrap(), 6 | 0b00000000, "Unexpected 2nd csid value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 82, "Unexpected 2nd timestamp value");
-        assert_eq!(cursor.read_u24::<BigEndian>().unwrap(), 4, "Unexpected 2nd message length value");
+        assert_eq!(
+            cursor.read_u8().unwrap(),
+            6 | 0b00000000,
+            "Unexpected 2nd csid value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            82,
+            "Unexpected 2nd timestamp value"
+        );
+        assert_eq!(
+            cursor.read_u24::<BigEndian>().unwrap(),
+            4,
+            "Unexpected 2nd message length value"
+        );
         assert_eq!(cursor.read_u8().unwrap(), 50, "Unexpected 2nd type id");
-        assert_eq!(cursor.read_u32::<LittleEndian>().unwrap(), 12, "Unexpected 2nd message stream id");
-        assert_eq!(packet2.can_be_dropped, false, "Second packet was not expected to be droppable");
+        assert_eq!(
+            cursor.read_u32::<LittleEndian>().unwrap(),
+            12,
+            "Unexpected 2nd message stream id"
+        );
+        assert_eq!(
+            packet2.can_be_dropped, false,
+            "Second packet was not expected to be droppable"
+        );
 
         let mut payload_bytes = [0_u8; 50];
         let bytes_read = cursor.read(&mut payload_bytes[..]).unwrap();
         assert_eq!(bytes_read, 4, "Unexpected payload bytes read");
-        assert_eq!(&payload_bytes[..bytes_read], &message1.data[..], "Unexpected payload contents");
+        assert_eq!(
+            &payload_bytes[..bytes_read],
+            &message1.data[..],
+            "Unexpected payload contents"
+        );
     }
 }

@@ -1,12 +1,12 @@
-use std::io;
-use std::fmt;
 use failure::{Backtrace, Fail};
 use rml_amf0::Amf0DeserializationError;
+use std::fmt;
+use std::io;
 
 /// Error state when deserialization errors occur
 #[derive(Debug)]
 pub struct MessageDeserializationError {
-    pub kind: MessageDeserializationErrorKind
+    pub kind: MessageDeserializationErrorKind,
 }
 
 /// Enumeration that represents the various errors that may occur while trying to
@@ -20,12 +20,15 @@ pub enum MessageDeserializationErrorKind {
 
     /// The bytes in the message that were expected to be AMF0 values were not properly encoded,
     /// and thus could not be read
-    #[fail(display = "The message did no contain valid Amf0 encoded values: {}", _0)]
+    #[fail(
+        display = "The message did no contain valid Amf0 encoded values: {}",
+        _0
+    )]
     Amf0DeserializationError(#[cause] Amf0DeserializationError),
 
     /// Failed to read the values from the input buffer
     #[fail(display = "An IO error occurred while reading the input: {}", _0)]
-    Io(#[cause] io::Error)
+    Io(#[cause] io::Error),
 }
 
 impl fmt::Display for MessageDeserializationError {
@@ -52,14 +55,16 @@ impl From<MessageDeserializationErrorKind> for MessageDeserializationError {
 
 impl From<io::Error> for MessageDeserializationError {
     fn from(error: io::Error) -> Self {
-        MessageDeserializationError { kind: MessageDeserializationErrorKind::Io(error) }
+        MessageDeserializationError {
+            kind: MessageDeserializationErrorKind::Io(error),
+        }
     }
 }
 
 impl From<Amf0DeserializationError> for MessageDeserializationError {
     fn from(error: Amf0DeserializationError) -> Self {
         MessageDeserializationError {
-            kind: MessageDeserializationErrorKind::Amf0DeserializationError(error)
+            kind: MessageDeserializationErrorKind::Amf0DeserializationError(error),
         }
     }
 }

@@ -1,16 +1,14 @@
 use std::{io, string};
 
 /// Errors that can occur during the deserialization process
-#[derive(Debug,Fail)]
+#[derive(Debug, Fail)]
 pub enum Amf0DeserializationError {
     /// Every Amf0 value starts with a marker byte describing the type of value that was
     /// encoded.  For example a marker of `0x00` is a number, `0x01` is a string, etc..
     ///
     /// This error is encountered when we see a maker value that we do not recognize.
     #[fail(display = "Encountered unknown marker: {}", marker)]
-    UnknownMarker{
-        marker: u8
-    },
+    UnknownMarker { marker: u8 },
 
     /// Object properties consist of a name and value pair.  It is expected that every property
     /// has a valid string name, and if the name is empty this error is raised.
@@ -29,7 +27,7 @@ pub enum Amf0DeserializationError {
     /// Strings in AMF0 are UTF-8 encoded, so if the bytes read are not valid
     /// UTF-8 this error will be raised.
     #[fail(display = "Failed to read a utf8 string from the byte buffer: {}", _0)]
-    StringParseError(#[cause] string::FromUtf8Error)
+    StringParseError(#[cause] string::FromUtf8Error),
 }
 
 // Since an IO error can only be thrown while reading the buffer, auto-conversion should work
@@ -55,7 +53,7 @@ pub enum Amf0SerializationError {
 
     /// An I/O error occurred while writing to the output buffer.
     #[fail(display = "Failed to write to byte buffer")]
-    BufferWriteError(#[cause] io::Error)
+    BufferWriteError(#[cause] io::Error),
 }
 
 impl From<io::Error> for Amf0SerializationError {

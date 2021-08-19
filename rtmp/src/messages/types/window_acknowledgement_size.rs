@@ -1,9 +1,9 @@
-use std::io::Cursor;
-use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
+use std::io::Cursor;
 
-use ::messages::{MessageDeserializationError, MessageSerializationError};
-use ::messages::{RtmpMessage};
+use messages::RtmpMessage;
+use messages::{MessageDeserializationError, MessageSerializationError};
 
 pub fn serialize(size: u32) -> Result<Bytes, MessageSerializationError> {
     let mut cursor = Cursor::new(Vec::new());
@@ -17,19 +17,17 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
     let mut cursor = Cursor::new(data);
     let size = cursor.read_u32::<BigEndian>()?;
 
-    Ok(RtmpMessage::WindowAcknowledgement {
-        size
-    })
+    Ok(RtmpMessage::WindowAcknowledgement { size })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{serialize, deserialize};
-    use std::io::Cursor;
+    use super::{deserialize, serialize};
     use byteorder::{BigEndian, WriteBytesExt};
     use bytes::Bytes;
+    use std::io::Cursor;
 
-    use ::messages::RtmpMessage;
+    use messages::RtmpMessage;
 
     #[test]
     fn can_serialize_message() {

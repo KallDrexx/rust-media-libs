@@ -1,15 +1,20 @@
-use std::io::Cursor;
-use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
+use std::io::Cursor;
 
-use ::messages::{MessageDeserializationError, MessageDeserializationErrorKind, MessageSerializationError, MessageSerializationErrorKind};
-use ::messages::{RtmpMessage};
+use messages::RtmpMessage;
+use messages::{
+    MessageDeserializationError, MessageDeserializationErrorKind, MessageSerializationError,
+    MessageSerializationErrorKind,
+};
 
 const MAX_SIZE: u32 = 0x80000000 - 1;
 
 pub fn serialize(size: u32) -> Result<Bytes, MessageSerializationError> {
     if size > MAX_SIZE {
-        return Err(MessageSerializationError {kind: MessageSerializationErrorKind::InvalidChunkSize});
+        return Err(MessageSerializationError {
+            kind: MessageSerializationErrorKind::InvalidChunkSize,
+        });
     }
 
     let mut cursor = Cursor::new(Vec::new());
@@ -24,7 +29,9 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
     let size = cursor.read_u32::<BigEndian>()?;
 
     if size > MAX_SIZE {
-        return Err(MessageDeserializationError {kind: MessageDeserializationErrorKind::InvalidMessageFormat});
+        return Err(MessageDeserializationError {
+            kind: MessageDeserializationErrorKind::InvalidMessageFormat,
+        });
     }
 
     Ok(RtmpMessage::SetChunkSize { size })
@@ -32,12 +39,12 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
 
 #[cfg(test)]
 mod tests {
-    use super::{serialize, deserialize};
-    use std::io::Cursor;
+    use super::{deserialize, serialize};
     use byteorder::{BigEndian, WriteBytesExt};
     use bytes::Bytes;
+    use std::io::Cursor;
 
-    use ::messages::{RtmpMessage};
+    use messages::RtmpMessage;
 
     #[test]
     fn can_serialize_message() {

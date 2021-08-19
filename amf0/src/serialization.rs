@@ -2,11 +2,11 @@
 //! bytes based on the AMF0 specification
 //! (http://wwwimages.adobe.com/content/dam/Adobe/en/devnet/amf/pdf/amf0-file-format-specification.pdf)
 
-use std::collections::HashMap;
-use Amf0Value;
+use byteorder::{BigEndian, WriteBytesExt};
 use errors::Amf0SerializationError;
 use markers;
-use byteorder::{BigEndian, WriteBytesExt};
+use std::collections::HashMap;
+use Amf0Value;
 
 /// Serializes values into an amf0 encoded vector of bytes
 pub fn serialize(values: &Vec<Amf0Value>) -> Result<Vec<u8>, Amf0SerializationError> {
@@ -25,7 +25,7 @@ fn serialize_value(value: &Amf0Value, bytes: &mut Vec<u8>) -> Result<(), Amf0Ser
         Amf0Value::Undefined => Ok(serialize_undefined(bytes)),
         Amf0Value::Number(ref val) => serialize_number(&val, bytes),
         Amf0Value::Utf8String(ref val) => serialize_string(&val, bytes),
-        Amf0Value::Object(ref val) => serialize_object(&val, bytes)
+        Amf0Value::Object(ref val) => serialize_object(&val, bytes),
     }
 }
 
@@ -42,7 +42,7 @@ fn serialize_bool(value: &bool, bytes: &mut Vec<u8>) {
 
 fn serialize_string(value: &String, bytes: &mut Vec<u8>) -> Result<(), Amf0SerializationError> {
     if value.len() > (u16::max_value() as usize) {
-        return Err(Amf0SerializationError::NormalStringTooLong)
+        return Err(Amf0SerializationError::NormalStringTooLong);
     }
 
     bytes.push(markers::STRING_MARKER);
@@ -59,7 +59,10 @@ fn serialize_undefined(bytes: &mut Vec<u8>) {
     bytes.push(markers::UNDEFINED_MARKER);
 }
 
-fn serialize_object(properties: &HashMap<String, Amf0Value>, bytes: &mut Vec<u8>) -> Result<(), Amf0SerializationError> {
+fn serialize_object(
+    properties: &HashMap<String, Amf0Value>,
+    bytes: &mut Vec<u8>,
+) -> Result<(), Amf0SerializationError> {
     bytes.push(markers::OBJECT_MARKER);
 
     for (name, value) in properties {
@@ -76,12 +79,12 @@ fn serialize_object(properties: &HashMap<String, Amf0Value>, bytes: &mut Vec<u8>
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use super::serialize;
-    use super::super::Amf0Value;
     use super::super::errors::Amf0SerializationError;
-    use markers;
+    use super::super::Amf0Value;
+    use super::serialize;
     use byteorder::{BigEndian, WriteBytesExt};
+    use markers;
+    use std::collections::HashMap;
 
     #[test]
     fn can_serialize_number() {
@@ -163,7 +166,9 @@ mod tests {
         expected.extend("test".as_bytes());
         expected.push(markers::NUMBER_MARKER);
         expected.write_f64::<BigEndian>(NUMBER).unwrap();
-        expected.write_u16::<BigEndian>(markers::UTF_8_EMPTY_MARKER).unwrap();
+        expected
+            .write_u16::<BigEndian>(markers::UTF_8_EMPTY_MARKER)
+            .unwrap();
         expected.push(markers::OBJECT_END_MARKER);
 
         assert_eq!(result, expected);
@@ -182,8 +187,8 @@ mod tests {
 
         assert!(match result {
             Err(Amf0SerializationError::NormalStringTooLong) => true,
-            _ => false}
-        );
+            _ => false,
+        });
     }
 
     #[test]

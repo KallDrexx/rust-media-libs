@@ -8,15 +8,11 @@ pub enum TransactionPurpose {
     PublishRequest {
         stream_key: String,
         request_type: PublishRequestType,
-    }
+    },
 }
 
 pub enum OutstandingTransaction {
-    ConnectionRequested {
-        app_name: String,
-    },
+    ConnectionRequested { app_name: String },
 
-    CreateStream {
-        purpose: TransactionPurpose,
-    },
+    CreateStream { purpose: TransactionPurpose },
 }

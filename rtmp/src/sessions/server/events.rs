@@ -1,8 +1,8 @@
+use super::PublishMode;
 use bytes::Bytes;
 use rml_amf0::Amf0Value;
-use ::time::RtmpTimestamp;
-use ::sessions::StreamMetadata;
-use super::PublishMode;
+use sessions::StreamMetadata;
+use time::RtmpTimestamp;
 
 /// Represents where RTMP playback should start from
 #[derive(PartialEq, Debug, Clone)]
@@ -22,15 +22,10 @@ pub enum PlayStartValue {
 #[derive(Debug, PartialEq, Clone)]
 pub enum ServerSessionEvent {
     /// The client is changing the maximum size of the RTMP chunks they will be sending
-    ClientChunkSizeChanged {
-        new_chunk_size: u32,
-    },
+    ClientChunkSizeChanged { new_chunk_size: u32 },
 
     /// The client is requesting a connection on the specified RTMP application name
-    ConnectionRequested {
-        request_id: u32,
-        app_name: String,
-    },
+    ConnectionRequested { request_id: u32, app_name: String },
 
     /// The client is requesting a stream key be released for use.
     ReleaseStreamRequested {
@@ -102,12 +97,8 @@ pub enum ServerSessionEvent {
     },
 
     /// The client has sent an acknowledgement that they have received the specified number of bytes
-    AcknowledgementReceived {
-        bytes_received: u32,
-    },
+    AcknowledgementReceived { bytes_received: u32 },
 
     /// The client has responded to a ping request
-    PingResponseReceived {
-        timestamp: RtmpTimestamp,
-    },
+    PingResponseReceived { timestamp: RtmpTimestamp },
 }

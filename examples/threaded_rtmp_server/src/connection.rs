@@ -1,11 +1,11 @@
+use rml_rtmp::handshake::{Handshake, HandshakeProcessResult, PeerType};
 use std::collections::VecDeque;
 use std::io;
 use std::io::{Read, Write};
-use std::time::Duration;
 use std::net::TcpStream;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
-use rml_rtmp::handshake::{Handshake, HandshakeProcessResult, PeerType};
+use std::time::Duration;
 
 const BUFFER_SIZE: usize = 4096;
 
@@ -63,17 +63,16 @@ impl Connection {
         match self.reader.try_recv() {
             Err(TryRecvError::Empty) => Ok(ReadResult::NoBytesReceived),
             Err(TryRecvError::Disconnected) => Err(ConnectionError::SocketClosed),
-            Ok(result) => {
-                match self.handshake_completed {
-                    true => Ok(result),
-                    false => match result {
-                        ReadResult::HandshakingInProgress => unreachable!(),
-                        ReadResult::NoBytesReceived => Ok(result),
-                        ReadResult::BytesReceived {buffer, byte_count}
-                            => self.handle_handshake_bytes(&buffer[..byte_count]),
+            Ok(result) => match self.handshake_completed {
+                true => Ok(result),
+                false => match result {
+                    ReadResult::HandshakingInProgress => unreachable!(),
+                    ReadResult::NoBytesReceived => Ok(result),
+                    ReadResult::BytesReceived { buffer, byte_count } => {
+                        self.handle_handshake_bytes(&buffer[..byte_count])
                     }
-                }
-            }
+                },
+            },
         }
     }
 
@@ -87,15 +86,18 @@ impl Connection {
         };
 
         match result {
-            HandshakeProcessResult::InProgress {response_bytes} => {
+            HandshakeProcessResult::InProgress { response_bytes } => {
                 if response_bytes.len() > 0 {
                     self.write(response_bytes);
                 }
 
                 Ok(ReadResult::HandshakingInProgress)
-            },
+            }
 
-            HandshakeProcessResult::Completed {response_bytes, remaining_bytes} => {
+            HandshakeProcessResult::Completed {
+                response_bytes,
+                remaining_bytes,
+            } => {
                 println!("Handshake successful!");
                 if response_bytes.len() > 0 {
                     self.write(response_bytes);
@@ -108,7 +110,10 @@ impl Connection {
                 }
 
                 self.handshake_completed = true;
-                Ok(ReadResult::BytesReceived {buffer, byte_count: buffer_size})
+                Ok(ReadResult::BytesReceived {
+                    buffer,
+                    byte_count: buffer_size,
+                })
             }
         }
     }
@@ -116,7 +121,7 @@ impl Connection {
 
 fn start_byte_writer(byte_receiver: Receiver<Vec<u8>>, socket: &TcpStream) {
     let mut socket = socket.try_clone().expect("failed to clone socket");
-    thread::spawn(move|| {
+    thread::spawn(move || {
         let mut send_queue = VecDeque::new();
 
         loop {
@@ -136,7 +141,7 @@ fn start_byte_writer(byte_receiver: Receiver<Vec<u8>>, socket: &TcpStream) {
                         println!("Error writing to socket: {:?}", error);
                         return;
                     }
-                }
+                },
             }
         }
     });
@@ -144,7 +149,7 @@ fn start_byte_writer(byte_receiver: Receiver<Vec<u8>>, socket: &TcpStream) {
 
 fn start_result_reader(sender: Sender<ReadResult>, socket: &TcpStream) {
     let mut socket = socket.try_clone().unwrap();
-    thread::spawn(move|| {
+    thread::spawn(move || {
         let mut buffer = [0; BUFFER_SIZE];
         loop {
             match socket.read(&mut buffer) {
@@ -161,7 +166,7 @@ fn start_result_reader(sender: Sender<ReadResult>, socket: &TcpStream) {
                     };
 
                     sender.send(result).unwrap();
-                },
+                }
 
                 Err(error) => {
                     println!("Error occurred reading from socket: {:?}", error);

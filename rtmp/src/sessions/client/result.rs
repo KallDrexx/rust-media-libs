@@ -1,6 +1,6 @@
 use chunk_io::Packet;
 use messages::MessagePayload;
-use ::sessions::client::ClientSessionEvent;
+use sessions::client::ClientSessionEvent;
 
 /// A single result that is returned when the client session performs an action
 /// or receives messages from the server.

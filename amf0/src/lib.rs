@@ -29,16 +29,17 @@
 //! assert_eq!(input, results);
 //! ```
 
-#[macro_use] extern crate failure;
+#[macro_use]
+extern crate failure;
 extern crate byteorder;
 
-mod serialization;
 mod deserialization;
 mod errors;
+mod serialization;
 
-pub use serialization::serialize;
 pub use deserialization::deserialize;
 pub use errors::{Amf0DeserializationError, Amf0SerializationError};
+pub use serialization::serialize;
 
 use std::collections::HashMap;
 

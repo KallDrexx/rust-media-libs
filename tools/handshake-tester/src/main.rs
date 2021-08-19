@@ -1,9 +1,9 @@
 extern crate rml_rtmp;
 
+use rml_rtmp::handshake::{Handshake, HandshakeProcessResult, PeerType};
 use std::env;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use rml_rtmp::handshake::{HandshakeProcessResult, Handshake, PeerType};
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();
@@ -13,7 +13,7 @@ fn main() {
         println!("No arguments provided.  One of the following must be provided");
         println!("Act as a server: server");
         println!("Act as a client: client <server host>");
-    } else if args[0] == "client"  {
+    } else if args[0] == "client" {
         act_as_client(&args[1]);
     } else if args[0] == "server" {
         act_as_server();
@@ -30,11 +30,17 @@ fn act_as_client(host_address: &str) {
 
     loop {
         let bytes_read = stream.read(&mut read_buffer).unwrap();
-        let (is_finished, response_bytes) = match handshake.process_bytes(&read_buffer[..bytes_read]) {
-            Err(x) => panic!("Error returned: {:?}", x),
-            Ok(HandshakeProcessResult::InProgress {response_bytes: bytes}) => (false, bytes),
-            Ok(HandshakeProcessResult::Completed {response_bytes: bytes, remaining_bytes: _}) => (true, bytes)
-        };
+        let (is_finished, response_bytes) =
+            match handshake.process_bytes(&read_buffer[..bytes_read]) {
+                Err(x) => panic!("Error returned: {:?}", x),
+                Ok(HandshakeProcessResult::InProgress {
+                    response_bytes: bytes,
+                }) => (false, bytes),
+                Ok(HandshakeProcessResult::Completed {
+                    response_bytes: bytes,
+                    remaining_bytes: _,
+                }) => (true, bytes),
+            };
 
         if response_bytes.len() > 0 {
             stream.write(&response_bytes).unwrap();
@@ -61,11 +67,17 @@ fn act_as_server() {
 
         loop {
             let bytes_read = stream.read(&mut read_buffer).unwrap();
-            let (is_finished, response_bytes) = match handshake.process_bytes(&read_buffer[..bytes_read]) {
-                Err(x) => panic!("Error returned: {:?}", x),
-                Ok(HandshakeProcessResult::InProgress {response_bytes: bytes}) => (false, bytes),
-                Ok(HandshakeProcessResult::Completed {response_bytes: bytes, remaining_bytes: _}) => (true, bytes)
-            };
+            let (is_finished, response_bytes) =
+                match handshake.process_bytes(&read_buffer[..bytes_read]) {
+                    Err(x) => panic!("Error returned: {:?}", x),
+                    Ok(HandshakeProcessResult::InProgress {
+                        response_bytes: bytes,
+                    }) => (false, bytes),
+                    Ok(HandshakeProcessResult::Completed {
+                        response_bytes: bytes,
+                        remaining_bytes: _,
+                    }) => (true, bytes),
+                };
 
             if response_bytes.len() > 0 {
                 stream.write(&response_bytes).unwrap();

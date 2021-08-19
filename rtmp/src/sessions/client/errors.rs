@@ -1,8 +1,8 @@
-use std::fmt;
+use chunk_io::{ChunkDeserializationError, ChunkSerializationError};
 use failure::{Backtrace, Fail};
-use ::chunk_io::{ChunkSerializationError, ChunkDeserializationError};
-use ::messages::{MessageSerializationError, MessageDeserializationError};
-use ::sessions::ClientState;
+use messages::{MessageDeserializationError, MessageSerializationError};
+use sessions::ClientState;
+use std::fmt;
 
 /// Error state when a client session encounters an error
 #[derive(Debug)]
@@ -22,23 +22,32 @@ pub enum ClientSessionErrorKind {
     ChunkSerializationError(#[cause] ChunkSerializationError),
 
     /// Encountered when an error occurs while turning an RTMP message into an message payload
-    #[fail(display = "An error occurred while attempting to turn an RTMP message into a message payload: {}", _0)]
+    #[fail(
+        display = "An error occurred while attempting to turn an RTMP message into a message payload: {}",
+        _0
+    )]
     MessageSerializationError(#[cause] MessageSerializationError),
 
     /// Encountered when an error occurs while turning a message payload into an RTMP message
-    #[fail(display = "An error occurred while attempting to turn a message payload into an RTMP message: {}", _0)]
+    #[fail(
+        display = "An error occurred while attempting to turn a message payload into an RTMP message: {}",
+        _0
+    )]
     MessageDeserializationError(#[cause] MessageDeserializationError),
 
     /// Encountered if a connection request is made while we are already connected
-    #[fail(display = "A connection request was attempted while this session is already in a connected state")]
+    #[fail(
+        display = "A connection request was attempted while this session is already in a connected state"
+    )]
     CantConnectWhileAlreadyConnected,
 
     /// Encountered if a request is made, or a response is received for a request while the
     /// client session is not in a valid state for that purpose.
-    #[fail(display = "The request could not be performed while the session is in the {:?} state", current_state)]
-    SessionInInvalidState {
-        current_state: ClientState
-    },
+    #[fail(
+        display = "The request could not be performed while the session is in the {:?} state",
+        current_state
+    )]
+    SessionInInvalidState { current_state: ClientState },
 
     /// Encountered when attempting to send a message that requires having an active stream
     /// opened but none is marked down.  This is almost always a bug with the `ClientSession` as
@@ -73,7 +82,7 @@ impl fmt::Display for ClientSessionError {
 
 impl Fail for ClientSessionError {
     fn cause(&self) -> Option<&dyn Fail> {
-       self.kind.cause()
+        self.kind.cause()
     }
 
     fn backtrace(&self) -> Option<&Backtrace> {
@@ -83,24 +92,32 @@ impl Fail for ClientSessionError {
 
 impl From<ChunkSerializationError> for ClientSessionError {
     fn from(kind: ChunkSerializationError) -> Self {
-        ClientSessionError { kind: ClientSessionErrorKind::ChunkSerializationError(kind) }
+        ClientSessionError {
+            kind: ClientSessionErrorKind::ChunkSerializationError(kind),
+        }
     }
 }
 
 impl From<ChunkDeserializationError> for ClientSessionError {
     fn from(kind: ChunkDeserializationError) -> Self {
-        ClientSessionError { kind: ClientSessionErrorKind::ChunkDeserializationError(kind) }
+        ClientSessionError {
+            kind: ClientSessionErrorKind::ChunkDeserializationError(kind),
+        }
     }
 }
 
 impl From<MessageSerializationError> for ClientSessionError {
     fn from(kind: MessageSerializationError) -> Self {
-        ClientSessionError { kind: ClientSessionErrorKind::MessageSerializationError(kind) }
+        ClientSessionError {
+            kind: ClientSessionErrorKind::MessageSerializationError(kind),
+        }
     }
 }
 
 impl From<MessageDeserializationError> for ClientSessionError {
     fn from(kind: MessageDeserializationError) -> Self {
-        ClientSessionError { kind: ClientSessionErrorKind::MessageDeserializationError(kind) }
+        ClientSessionError {
+            kind: ClientSessionErrorKind::MessageDeserializationError(kind),
+        }
     }
 }

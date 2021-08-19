@@ -52,23 +52,23 @@ assert_eq!(output1, input1);
 ```
 */
 
+mod chunk_header;
 mod deserialization_errors;
 mod deserializer;
-mod chunk_header;
 mod serialization_errors;
 mod serializer;
 
 pub use self::deserialization_errors::{ChunkDeserializationError, ChunkDeserializationErrorKind};
+pub use self::deserializer::ChunkDeserializer;
 pub use self::serialization_errors::{ChunkSerializationError, ChunkSerializationErrorKind};
-pub use self::deserializer::{ChunkDeserializer};
 pub use self::serializer::{ChunkSerializer, Packet};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bytes::Bytes;
-    use ::messages::MessagePayload;
-    use ::time::RtmpTimestamp;
+    use messages::MessagePayload;
+    use time::RtmpTimestamp;
 
     #[test]
     fn can_deserialize_messages_serialized_by_chunk_serializer_struct() {
@@ -99,13 +99,31 @@ mod tests {
         let packet3 = serializer.serialize(&input3, false, false).unwrap();
 
         let mut deserializer = ChunkDeserializer::new();
-        let output1 = deserializer.get_next_message(&packet1.bytes).unwrap().unwrap();
-        let output2 = deserializer.get_next_message(&packet2.bytes).unwrap().unwrap();
-        let output3 = deserializer.get_next_message(&packet3.bytes).unwrap().unwrap();
+        let output1 = deserializer
+            .get_next_message(&packet1.bytes)
+            .unwrap()
+            .unwrap();
+        let output2 = deserializer
+            .get_next_message(&packet2.bytes)
+            .unwrap()
+            .unwrap();
+        let output3 = deserializer
+            .get_next_message(&packet3.bytes)
+            .unwrap()
+            .unwrap();
 
-        assert_eq!(output1, input1, "First message was not deserialized as expected");
-        assert_eq!(output2, input2, "Second message was not deserialized as expected");
-        assert_eq!(output3, input3, "Third message was not deserialized as expected");
+        assert_eq!(
+            output1, input1,
+            "First message was not deserialized as expected"
+        );
+        assert_eq!(
+            output2, input2,
+            "Second message was not deserialized as expected"
+        );
+        assert_eq!(
+            output3, input3,
+            "Third message was not deserialized as expected"
+        );
     }
 
     #[test]
@@ -137,12 +155,30 @@ mod tests {
         let packet3 = serializer.serialize(&input3, false, false).unwrap();
 
         let mut deserializer = ChunkDeserializer::new();
-        let output1 = deserializer.get_next_message(&packet1.bytes).unwrap().unwrap();
-        let output2 = deserializer.get_next_message(&packet2.bytes).unwrap().unwrap();
-        let output3 = deserializer.get_next_message(&packet3.bytes).unwrap().unwrap();
+        let output1 = deserializer
+            .get_next_message(&packet1.bytes)
+            .unwrap()
+            .unwrap();
+        let output2 = deserializer
+            .get_next_message(&packet2.bytes)
+            .unwrap()
+            .unwrap();
+        let output3 = deserializer
+            .get_next_message(&packet3.bytes)
+            .unwrap()
+            .unwrap();
 
-        assert_eq!(output1, input1, "First message was not deserialized as expected");
-        assert_eq!(output2, input2, "Second message was not deserialized as expected");
-        assert_eq!(output3, input3, "Third message was not deserialized as expected");
+        assert_eq!(
+            output1, input1,
+            "First message was not deserialized as expected"
+        );
+        assert_eq!(
+            output2, input2,
+            "Second message was not deserialized as expected"
+        );
+        assert_eq!(
+            output3, input3,
+            "Third message was not deserialized as expected"
+        );
     }
 }
