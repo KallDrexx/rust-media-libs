@@ -30,6 +30,7 @@ pub use self::server::ServerSessionError;
 pub use self::server::ServerSessionErrorKind;
 pub use self::server::ServerSessionEvent;
 pub use self::server::ServerSessionResult;
+pub use self::server::PublishMode;
 
 use rml_amf0::Amf0Value;
 use std::collections::HashMap;
