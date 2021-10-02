@@ -53,7 +53,7 @@ pub struct StreamMetadata {
 
 impl StreamMetadata {
     /// Creates a new (and empty) metadata instance
-    fn new() -> StreamMetadata {
+    pub fn new() -> StreamMetadata {
         StreamMetadata {
             video_width: None,
             video_height: None,
@@ -69,7 +69,10 @@ impl StreamMetadata {
         }
     }
 
-    fn apply_metadata_values(&mut self, mut properties: HashMap<String, Amf0Value>) {
+    /// Iterates through the passed in hashmap and uses their values to set the metadata
+    /// properties. The keys are based on standard metadata property names seen from existing
+    /// RTMP encoders.
+    pub fn apply_metadata_values(&mut self, mut properties: HashMap<String, Amf0Value>) {
         for (key, value) in properties.drain() {
             match key.as_ref() {
                 "width" => match value.get_number() {
