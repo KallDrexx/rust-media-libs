@@ -57,6 +57,21 @@ pub enum UserControlEventType {
 
     /// Client sends this in response to a ping request
     PingResponse,
+
+    /// Buffer Empty (unofficial name): After the server has sent a complete buffer, and
+    /// sends this Buffer Empty message, it will wait until the play
+    /// duration of that buffer has passed before sending a new buffer.
+    /// The Buffer Ready message will be sent when the new buffer starts.
+    BufferEmpty,
+
+    /// Buffer Ready (unofficial name): After the server has sent a complete buffer, and
+    /// sends a Buffer Empty message, it will wait until the play
+    /// duration of that buffer has passed before sending a new buffer.
+    /// The Buffer Ready message will be sent when the new buffer starts.
+    /// (There is no BufferReady message for the very first buffer;
+    /// presumably the Stream Begin message is sufficient for that
+    /// purpose.)
+    BufferReady
 }
 
 /// An enumeration of all types of RTMP messages that are supported

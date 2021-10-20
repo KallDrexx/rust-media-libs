@@ -25,6 +25,8 @@ pub fn serialize(
         UserControlEventType::StreamIsRecorded => write_stream_event(&mut cursor, 4, stream_id)?,
         UserControlEventType::PingRequest => write_timestamp_event(&mut cursor, 6, timestamp)?,
         UserControlEventType::PingResponse => write_timestamp_event(&mut cursor, 7, timestamp)?,
+        UserControlEventType::BufferEmpty => write_stream_event(&mut cursor, 31, stream_id)?,
+        UserControlEventType::BufferReady => write_stream_event(&mut cursor, 32, stream_id)?
     };
 
     let bytes = Bytes::from(cursor.into_inner());
@@ -41,6 +43,8 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
         4 => UserControlEventType::StreamIsRecorded,
         6 => UserControlEventType::PingRequest,
         7 => UserControlEventType::PingResponse,
+        31 => UserControlEventType::BufferEmpty,
+        32 => UserControlEventType::BufferReady,
         _ => {
             return Err(MessageDeserializationError {
                 kind: MessageDeserializationErrorKind::InvalidMessageFormat,
@@ -67,6 +71,8 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
             stream_id = Some(cursor.read_u32::<BigEndian>()?);
             buffer_length = Some(cursor.read_u32::<BigEndian>()?);
         }
+        UserControlEventType::BufferEmpty => stream_id = Some(cursor.read_u32::<BigEndian>()?),
+        UserControlEventType::BufferReady => stream_id = Some(cursor.read_u32::<BigEndian>()?),
     }
 
     Ok(RtmpMessage::UserControl {
@@ -285,6 +291,85 @@ mod tests {
 
         assert_eq!(&raw_message[..], &expected[..]);
     }
+
+    #[test]
+    fn can_serialize_buffer_emtpy_message() {
+        let stream_id = 555;
+
+        let mut cursor = Cursor::new(Vec::new());
+        cursor.write_u16::<BigEndian>(31).unwrap();
+        cursor.write_u32::<BigEndian>(stream_id).unwrap();
+        let expected = cursor.into_inner();
+
+        let raw_message = serialize(
+            UserControlEventType::BufferEmpty,
+            Some(stream_id),
+            None,
+            None,
+        )
+            .unwrap();
+
+        assert_eq!(&raw_message[..], &expected[..]);
+    }
+
+    #[test]
+    fn can_serialize_buffer_ready_message() {
+        let stream_id = 555;
+
+        let mut cursor = Cursor::new(Vec::new());
+        cursor.write_u16::<BigEndian>(32).unwrap();
+        cursor.write_u32::<BigEndian>(stream_id).unwrap();
+        let expected = cursor.into_inner();
+
+        let raw_message = serialize(
+            UserControlEventType::BufferReady,
+            Some(stream_id),
+            None,
+            None,
+        )
+            .unwrap();
+
+        assert_eq!(&raw_message[..], &expected[..]);
+    }
+
+    #[test]
+    fn can_deserialize_buffer_empty_message() {
+        let stream_id = 555;
+        let expected = RtmpMessage::UserControl {
+            event_type: UserControlEventType::BufferEmpty,
+            stream_id: Some(stream_id),
+            buffer_length: None,
+            timestamp: None,
+        };
+
+        let mut cursor = Cursor::new(Vec::new());
+        cursor.write_u16::<BigEndian>(31).unwrap();
+        cursor.write_u32::<BigEndian>(stream_id).unwrap();
+
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn can_deserialize_buffer_ready_message() {
+        let stream_id = 555;
+        let expected = RtmpMessage::UserControl {
+            event_type: UserControlEventType::BufferReady,
+            stream_id: Some(stream_id),
+            buffer_length: None,
+            timestamp: None,
+        };
+
+        let mut cursor = Cursor::new(Vec::new());
+        cursor.write_u16::<BigEndian>(32).unwrap();
+        cursor.write_u32::<BigEndian>(stream_id).unwrap();
+
+        let data = Bytes::from(cursor.into_inner());
+        let result = deserialize(data).unwrap();
+        assert_eq!(result, expected);
+    }
+
 
     #[test]
     fn can_deserialize_stream_begin_message() {
