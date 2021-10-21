@@ -24,13 +24,13 @@ pub use self::client::ClientSessionResult;
 pub use self::client::ClientState;
 pub use self::client::PublishRequestType;
 
+pub use self::server::PublishMode;
 pub use self::server::ServerSession;
 pub use self::server::ServerSessionConfig;
 pub use self::server::ServerSessionError;
 pub use self::server::ServerSessionErrorKind;
 pub use self::server::ServerSessionEvent;
 pub use self::server::ServerSessionResult;
-pub use self::server::PublishMode;
 
 use rml_amf0::Amf0Value;
 use std::collections::HashMap;

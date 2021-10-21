@@ -5,7 +5,9 @@ use bytes::{Bytes, BytesMut};
 use futures::future::FutureExt;
 use rml_rtmp::chunk_io::Packet;
 use rml_rtmp::handshake::{Handshake, HandshakeProcessResult, PeerType};
-use rml_rtmp::sessions::{ServerSession, ServerSessionConfig, ServerSessionEvent, ServerSessionResult, PublishMode};
+use rml_rtmp::sessions::{
+    PublishMode, ServerSession, ServerSessionConfig, ServerSessionEvent, ServerSessionResult,
+};
 use std::collections::VecDeque;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -408,9 +410,7 @@ impl Connection {
                     self.id, app_name, stream_key, mode
                 );
 
-                if mode != PublishMode::Live {
-
-                }
+                if mode != PublishMode::Live {}
 
                 match &self.state {
                     State::Connected { .. } => {

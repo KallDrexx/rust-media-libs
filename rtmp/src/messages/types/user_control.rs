@@ -26,7 +26,7 @@ pub fn serialize(
         UserControlEventType::PingRequest => write_timestamp_event(&mut cursor, 6, timestamp)?,
         UserControlEventType::PingResponse => write_timestamp_event(&mut cursor, 7, timestamp)?,
         UserControlEventType::BufferEmpty => write_stream_event(&mut cursor, 31, stream_id)?,
-        UserControlEventType::BufferReady => write_stream_event(&mut cursor, 32, stream_id)?
+        UserControlEventType::BufferReady => write_stream_event(&mut cursor, 32, stream_id)?,
     };
 
     let bytes = Bytes::from(cursor.into_inner());
@@ -307,7 +307,7 @@ mod tests {
             None,
             None,
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(&raw_message[..], &expected[..]);
     }
@@ -327,7 +327,7 @@ mod tests {
             None,
             None,
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(&raw_message[..], &expected[..]);
     }
@@ -369,7 +369,6 @@ mod tests {
         let result = deserialize(data).unwrap();
         assert_eq!(result, expected);
     }
-
 
     #[test]
     fn can_deserialize_stream_begin_message() {

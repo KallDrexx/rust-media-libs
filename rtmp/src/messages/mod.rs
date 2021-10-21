@@ -71,7 +71,7 @@ pub enum UserControlEventType {
     /// (There is no BufferReady message for the very first buffer;
     /// presumably the Stream Begin message is sufficient for that
     /// purpose.)
-    BufferReady
+    BufferReady,
 }
 
 /// An enumeration of all types of RTMP messages that are supported
