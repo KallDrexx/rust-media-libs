@@ -1,6 +1,5 @@
-
-use thiserror::Error;
 use messages::MessageSerializationError;
+use thiserror::Error;
 
 use std::io;
 

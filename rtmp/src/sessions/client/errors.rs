@@ -1,9 +1,8 @@
 use chunk_io::{ChunkDeserializationError, ChunkSerializationError};
 
-use thiserror::Error;
 use messages::{MessageDeserializationError, MessageSerializationError};
 use sessions::ClientState;
-
+use thiserror::Error;
 
 /// Error state when a client session encounters an error
 /// Represents the type of error that occurred
@@ -18,20 +17,28 @@ pub enum ClientSessionError {
     ChunkSerializationError(#[from] ChunkSerializationError),
 
     /// Encountered when an error occurs while turning an RTMP message into an message payload
-    #[error("An error occurred while attempting to turn an RTMP message into a message payload: {0}")]
+    #[error(
+        "An error occurred while attempting to turn an RTMP message into a message payload: {0}"
+    )]
     MessageSerializationError(#[from] MessageSerializationError),
 
     /// Encountered when an error occurs while turning a message payload into an RTMP message
-    #[error("An error occurred while attempting to turn a message payload into an RTMP message: {0}")]
+    #[error(
+        "An error occurred while attempting to turn a message payload into an RTMP message: {0}"
+    )]
     MessageDeserializationError(#[from] MessageDeserializationError),
 
     /// Encountered if a connection request is made while we are already connected
-    #[error("A connection request was attempted while this session is already in a connected state")]
+    #[error(
+        "A connection request was attempted while this session is already in a connected state"
+    )]
     CantConnectWhileAlreadyConnected,
 
     /// Encountered if a request is made, or a response is received for a request while the
     /// client session is not in a valid state for that purpose.
-    #[error("The request could not be performed while the session is in the {current_state:?} state")]
+    #[error(
+        "The request could not be performed while the session is in the {current_state:?} state"
+    )]
     SessionInInvalidState { current_state: ClientState },
 
     /// Encountered when attempting to send a message that requires having an active stream

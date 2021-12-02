@@ -2,9 +2,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 use std::io::{Cursor, Write};
 
-use messages::{
-    MessageDeserializationError, MessageSerializationError,
-};
+use messages::{MessageDeserializationError, MessageSerializationError};
 use messages::{RtmpMessage, UserControlEventType};
 use time::RtmpTimestamp;
 

@@ -247,9 +247,7 @@ impl ServerSession {
     ) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         let request = match self.outstanding_requests.remove(&request_id) {
             Some(x) => x,
-            None => {
-                return Err(ServerSessionError::InvalidRequestId)
-            }
+            None => return Err(ServerSessionError::InvalidRequestId),
         };
 
         match request {
@@ -432,9 +430,7 @@ impl ServerSession {
     ) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
         let mut properties = match command_object {
             Amf0Value::Object(properties) => properties,
-            _ => {
-                return Err(ServerSessionError::NoAppNameForConnectionRequest)
-            }
+            _ => return Err(ServerSessionError::NoAppNameForConnectionRequest),
         };
 
         let app_name = match properties.remove("app") {
@@ -446,13 +442,9 @@ impl ServerSession {
 
                     app
                 }
-                _ => {
-                    return Err(ServerSessionError::NoAppNameForConnectionRequest)
-                }
+                _ => return Err(ServerSessionError::NoAppNameForConnectionRequest),
             },
-            None => {
-                return Err(ServerSessionError::NoAppNameForConnectionRequest)
-            }
+            None => return Err(ServerSessionError::NoAppNameForConnectionRequest),
         };
 
         self.object_encoding = match properties.remove("objectEncoding") {
@@ -1110,7 +1102,7 @@ impl ServerSession {
             None => {
                 return Err(ServerSessionError::ActionAttemptedOnInactiveStream {
                     action: "publish".to_string(),
-                    stream_id
+                    stream_id,
                 })
             }
         };

@@ -281,7 +281,9 @@ impl ClientSession {
         match self.current_state {
             ClientState::Connected => (),
             _ => {
-                return Err(ClientSessionError::SessionInInvalidState { current_state: self.current_state.clone() });
+                return Err(ClientSessionError::SessionInInvalidState {
+                    current_state: self.current_state.clone(),
+                });
             }
         }
 
@@ -838,7 +840,7 @@ impl ClientSession {
         match self.current_state {
             ClientState::PlayRequested => (),
             _ => {
-                return Err(ClientSessionError::SessionInInvalidState  {
+                return Err(ClientSessionError::SessionInInvalidState {
                     current_state: self.current_state.clone(),
                 });
             }

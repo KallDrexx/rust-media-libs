@@ -2,9 +2,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 use std::io::Cursor;
 
-use messages::{
-    MessageDeserializationError, MessageSerializationError,
-};
+use messages::{MessageDeserializationError, MessageSerializationError};
 use messages::{PeerBandwidthLimitType, RtmpMessage};
 
 pub fn serialize(

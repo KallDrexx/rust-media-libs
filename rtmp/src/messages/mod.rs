@@ -11,7 +11,7 @@ mod message_payload;
 mod serialization_errors;
 mod types;
 
-pub use self::deserialization_errors::{MessageDeserializationError};
+pub use self::deserialization_errors::MessageDeserializationError;
 pub use self::message_payload::MessagePayload;
 pub use self::serialization_errors::MessageSerializationError;
 use bytes::Bytes;

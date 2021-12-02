@@ -1,7 +1,7 @@
 //! Errors that can occur during the handshaking process
 
-use thiserror::Error;
 use std::io;
+use thiserror::Error;
 
 /// Data pertaining to errors that occurred during the handshaking process.
 /// Enumeration that represents the various errors that can occur during the handshaking process

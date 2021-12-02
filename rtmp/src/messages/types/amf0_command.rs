@@ -4,9 +4,7 @@ use rml_amf0::Amf0Value;
 use std::io::Cursor;
 
 use messages::RtmpMessage;
-use messages::{
-    MessageDeserializationError, MessageSerializationError,
-};
+use messages::{MessageDeserializationError, MessageSerializationError};
 
 pub fn serialize(
     command_name: String,
@@ -41,9 +39,7 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
             .ok_or(MessageDeserializationError::InvalidMessageFormat)?
         {
             Amf0Value::Utf8String(value) => value,
-            _ => {
-                return Err(MessageDeserializationError::InvalidMessageFormat)
-            }
+            _ => return Err(MessageDeserializationError::InvalidMessageFormat),
         };
 
         transaction_id = match arg_iterator
@@ -51,9 +47,7 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
             .ok_or(MessageDeserializationError::InvalidMessageFormat)?
         {
             Amf0Value::Number(value) => value,
-            _ => {
-                return Err(MessageDeserializationError::InvalidMessageFormat)
-            }
+            _ => return Err(MessageDeserializationError::InvalidMessageFormat),
         };
 
         command_object = arg_iterator

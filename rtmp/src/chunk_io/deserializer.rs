@@ -215,9 +215,7 @@ impl ChunkDeserializer {
             }
 
             _ => match self.previous_headers.remove(&csid) {
-                None => {
-                    return Err(ChunkDeserializationError::NoPreviousChunkOnStream { csid })
-                }
+                None => return Err(ChunkDeserializationError::NoPreviousChunkOnStream { csid }),
                 Some(header) => header,
             },
         };
