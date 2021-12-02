@@ -10,7 +10,7 @@ categories = ["multimedia", "multimedia::video", 'multimedia::audio']
 keywords = ["rtmp", "video", "streaming"]
 
 [dependencies]
-rml_amf0 = { path = "../amf0", version = "0.1.2" }
+rml_amf0 = { path = "../amf0", version = "0.2.0" }
 byteorder = "1.3"
 bytes = "1"
 rand = "0.8"
