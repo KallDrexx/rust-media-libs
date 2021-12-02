@@ -1,7 +1,7 @@
 use super::chunk_header::{ChunkHeader, ChunkHeaderFormat};
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use bytes::{BufMut, BytesMut};
-use chunk_io::{ChunkDeserializationError, ChunkDeserializationErrorKind};
+use chunk_io::ChunkDeserializationError;
 use messages::MessagePayload;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -182,10 +182,8 @@ impl ChunkDeserializer {
     /// message from the other end.
     pub fn set_max_chunk_size(&mut self, new_size: usize) -> Result<(), ChunkDeserializationError> {
         if new_size > 2147483647 {
-            return Err(ChunkDeserializationError {
-                kind: ChunkDeserializationErrorKind::InvalidMaxChunkSize {
-                    chunk_size: new_size,
-                },
+            return Err(ChunkDeserializationError::InvalidMaxChunkSize {
+                chunk_size: new_size,
             });
         }
 
@@ -218,9 +216,7 @@ impl ChunkDeserializer {
 
             _ => match self.previous_headers.remove(&csid) {
                 None => {
-                    return Err(ChunkDeserializationError {
-                        kind: ChunkDeserializationErrorKind::NoPreviousChunkOnStream { csid },
-                    })
+                    return Err(ChunkDeserializationError::NoPreviousChunkOnStream { csid })
                 }
                 Some(header) => header,
             },
@@ -936,11 +932,8 @@ mod tests {
         const CHUNK_SIZE_VALUE: usize = 2147483648;
         let mut deserializer = ChunkDeserializer::new();
         match deserializer.set_max_chunk_size(CHUNK_SIZE_VALUE) {
-            Err(ChunkDeserializationError {
-                kind:
-                    ChunkDeserializationErrorKind::InvalidMaxChunkSize {
-                        chunk_size: CHUNK_SIZE_VALUE,
-                    },
+            Err(ChunkDeserializationError::InvalidMaxChunkSize {
+                chunk_size: CHUNK_SIZE_VALUE,
             }) => {} // success
             x => panic!("Unexpected set max chunk size result of {:?}", x),
         }

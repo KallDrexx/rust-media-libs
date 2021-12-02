@@ -1,67 +1,23 @@
-use failure::{Backtrace, Fail};
+
+use thiserror::Error;
 use rml_amf0::Amf0SerializationError;
-use std::fmt;
+
 use std::io;
 
 /// Error state when serialization errors occur
-#[derive(Debug)]
-pub struct MessageSerializationError {
-    pub kind: MessageSerializationErrorKind,
-}
-
 /// Enumeration that represents the various errors that may occur while trying to
 /// serialize a RTMP message into a raw RTMP payload.
-#[derive(Debug, Fail)]
-pub enum MessageSerializationErrorKind {
+#[derive(Debug, Error)]
+pub enum MessageSerializationError {
     /// An invalid chunk size value was provided
-    #[fail(
-        display = "Cannot serialize a SetChunkSize message with a size of 2147483648 or greater"
-    )]
+    #[error("Cannot serialize a SetChunkSize message with a size of 2147483648 or greater")]
     InvalidChunkSize,
 
     /// The values provided could not be serialized into valid AMF0 encoded data
-    #[fail(display = "The values provided could not be serialized into valid AMF0 encoded data")]
-    Amf0SerializationError(#[cause] Amf0SerializationError),
+    #[error("The values provided could not be serialized into valid AMF0 encoded data")]
+    Amf0SerializationError(#[from] Amf0SerializationError),
 
     /// Failed to read the values from the input buffer
-    #[fail(display = "An IO error occurred while writing the output")]
-    Io(#[cause] io::Error),
-}
-
-impl fmt::Display for MessageSerializationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.kind, f)
-    }
-}
-
-impl Fail for MessageSerializationError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
-    }
-}
-
-impl From<MessageSerializationErrorKind> for MessageSerializationError {
-    fn from(kind: MessageSerializationErrorKind) -> Self {
-        MessageSerializationError { kind }
-    }
-}
-
-impl From<io::Error> for MessageSerializationError {
-    fn from(error: io::Error) -> Self {
-        MessageSerializationError {
-            kind: MessageSerializationErrorKind::Io(error),
-        }
-    }
-}
-
-impl From<Amf0SerializationError> for MessageSerializationError {
-    fn from(error: Amf0SerializationError) -> Self {
-        MessageSerializationError {
-            kind: MessageSerializationErrorKind::Amf0SerializationError(error),
-        }
-    }
+    #[error("An IO error occurred while writing the output")]
+    Io(#[from] io::Error),
 }

@@ -10,7 +10,7 @@ mod state;
 mod tests;
 
 pub use self::config::ClientSessionConfig;
-pub use self::errors::{ClientSessionError, ClientSessionErrorKind};
+pub use self::errors::ClientSessionError;
 pub use self::events::ClientSessionEvent;
 pub use self::publish_request_type::PublishRequestType;
 pub use self::result::ClientSessionResult;
@@ -194,8 +194,7 @@ impl ClientSession {
         match self.current_state {
             ClientState::Disconnected => (),
             _ => {
-                let kind = ClientSessionErrorKind::CantConnectWhileAlreadyConnected;
-                return Err(ClientSessionError { kind });
+                return Err(ClientSessionError::CantConnectWhileAlreadyConnected);
             }
         }
 
@@ -245,10 +244,9 @@ impl ClientSession {
         match self.current_state {
             ClientState::Connected => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
+                return Err(ClientSessionError::SessionInInvalidState {
                     current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                });
             }
         }
 
@@ -283,10 +281,7 @@ impl ClientSession {
         match self.current_state {
             ClientState::Connected => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
-                    current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                return Err(ClientSessionError::SessionInInvalidState { current_state: self.current_state.clone() });
             }
         }
 
@@ -394,18 +389,16 @@ impl ClientSession {
         match self.current_state {
             ClientState::Publishing => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
+                return Err(ClientSessionError::SessionInInvalidState {
                     current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                });
             }
         }
 
         let active_stream_id = match self.active_stream_id {
             Some(x) => x,
             None => {
-                let kind = ClientSessionErrorKind::NoKnownActiveStreamIdWhenRequired;
-                return Err(ClientSessionError { kind });
+                return Err(ClientSessionError::NoKnownActiveStreamIdWhenRequired);
             }
         };
 
@@ -478,18 +471,16 @@ impl ClientSession {
         match self.current_state {
             ClientState::Publishing => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
+                return Err(ClientSessionError::SessionInInvalidState {
                     current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                });
             }
         }
 
         let active_stream_id = match self.active_stream_id {
             Some(x) => x,
             None => {
-                let kind = ClientSessionErrorKind::NoKnownActiveStreamIdWhenRequired;
-                return Err(ClientSessionError { kind });
+                return Err(ClientSessionError::NoKnownActiveStreamIdWhenRequired);
             }
         };
 
@@ -509,18 +500,16 @@ impl ClientSession {
         match self.current_state {
             ClientState::Publishing => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
+                return Err(ClientSessionError::SessionInInvalidState {
                     current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                });
             }
         }
 
         let active_stream_id = match self.active_stream_id {
             Some(x) => x,
             None => {
-                let kind = ClientSessionErrorKind::NoKnownActiveStreamIdWhenRequired;
-                return Err(ClientSessionError { kind });
+                return Err(ClientSessionError::NoKnownActiveStreamIdWhenRequired);
             }
         };
 
@@ -542,10 +531,9 @@ impl ClientSession {
             ClientState::PlayRequested { .. } => (),
             ClientState::Playing { .. } => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
+                return Err(ClientSessionError::SessionInInvalidState {
                     current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                });
             }
         }
 
@@ -572,10 +560,9 @@ impl ClientSession {
             ClientState::PlayRequested { .. } => (),
             ClientState::Playing { .. } => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
+                return Err(ClientSessionError::SessionInInvalidState {
                     current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                });
             }
         }
 
@@ -690,8 +677,7 @@ impl ClientSession {
             }
 
             OutstandingTransaction::CreateStream { purpose: _ } => {
-                let kind = ClientSessionErrorKind::CreateStreamFailed;
-                return Err(ClientSessionError { kind });
+                return Err(ClientSessionError::CreateStreamFailed);
             }
         }
     }
@@ -737,15 +723,13 @@ impl ClientSession {
 
             OutstandingTransaction::CreateStream { purpose } => {
                 if additional_args.len() == 0 {
-                    let kind = ClientSessionErrorKind::CreateStreamResponseHadNoStreamNumber;
-                    return Err(ClientSessionError { kind });
+                    return Err(ClientSessionError::CreateStreamResponseHadNoStreamNumber);
                 }
 
                 let stream_id = match additional_args[0] {
                     Amf0Value::Number(number) => number as u32,
                     _ => {
-                        let kind = ClientSessionErrorKind::CreateStreamResponseHadNoStreamNumber;
-                        return Err(ClientSessionError { kind });
+                        return Err(ClientSessionError::CreateStreamResponseHadNoStreamNumber);
                     }
                 };
 
@@ -819,15 +803,13 @@ impl ClientSession {
 
     fn handle_on_status_command(&mut self, mut arguments: Vec<Amf0Value>) -> ClientResult {
         if arguments.len() < 1 {
-            let kind = ClientSessionErrorKind::InvalidOnStatusArguments;
-            return Err(ClientSessionError { kind });
+            return Err(ClientSessionError::InvalidOnStatusArguments);
         }
 
         let mut properties = match arguments.remove(0) {
             Amf0Value::Object(properties) => properties,
             _ => {
-                let kind = ClientSessionErrorKind::InvalidOnStatusArguments;
-                return Err(ClientSessionError { kind });
+                return Err(ClientSessionError::InvalidOnStatusArguments);
             }
         };
 
@@ -835,8 +817,7 @@ impl ClientSession {
             Some(Amf0Value::Utf8String(code)) => code,
 
             _ => {
-                let kind = ClientSessionErrorKind::InvalidOnStatusArguments;
-                return Err(ClientSessionError { kind });
+                return Err(ClientSessionError::InvalidOnStatusArguments);
             }
         };
 
@@ -857,10 +838,9 @@ impl ClientSession {
         match self.current_state {
             ClientState::PlayRequested => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
+                return Err(ClientSessionError::SessionInInvalidState  {
                     current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                });
             }
         };
 
@@ -874,10 +854,9 @@ impl ClientSession {
         match self.current_state {
             ClientState::PublishRequested => (),
             _ => {
-                let kind = ClientSessionErrorKind::SessionInInvalidState {
+                return Err(ClientSessionError::SessionInInvalidState {
                     current_state: self.current_state.clone(),
-                };
-                return Err(ClientSessionError { kind });
+                });
             }
         };
 

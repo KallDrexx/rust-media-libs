@@ -67,11 +67,11 @@ These higher level structs are meant to be integrated *AFTER* a successful hands
 
 extern crate byteorder;
 extern crate bytes;
-extern crate failure;
 extern crate hmac;
 extern crate rand;
 extern crate rml_amf0;
 extern crate sha2;
+extern crate thiserror;
 
 #[cfg(test)]
 #[macro_use]

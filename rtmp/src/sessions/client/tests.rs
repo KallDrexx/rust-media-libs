@@ -233,8 +233,8 @@ fn error_thrown_when_connect_request_made_after_successful_connection() {
     consume_results(&mut deserializer, results);
 
     let error = session.request_connection(app_name.clone()).unwrap_err();
-    match error.kind {
-        ClientSessionErrorKind::CantConnectWhileAlreadyConnected => (),
+    match error {
+        ClientSessionError::CantConnectWhileAlreadyConnected => (),
         x => panic!(
             "Expected CantConnectWhileAlreadyConnected, instead found {:?}",
             x

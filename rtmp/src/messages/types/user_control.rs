@@ -3,7 +3,7 @@ use bytes::Bytes;
 use std::io::{Cursor, Write};
 
 use messages::{
-    MessageDeserializationError, MessageDeserializationErrorKind, MessageSerializationError,
+    MessageDeserializationError, MessageSerializationError,
 };
 use messages::{RtmpMessage, UserControlEventType};
 use time::RtmpTimestamp;
@@ -46,9 +46,7 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
         31 => UserControlEventType::BufferEmpty,
         32 => UserControlEventType::BufferReady,
         _ => {
-            return Err(MessageDeserializationError {
-                kind: MessageDeserializationErrorKind::InvalidMessageFormat,
-            })
+            return Err(MessageDeserializationError::InvalidMessageFormat);
         }
     };
 

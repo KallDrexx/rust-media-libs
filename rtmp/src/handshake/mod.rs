@@ -26,7 +26,7 @@ no encryption is used.
 
 mod errors;
 
-pub use self::errors::{HandshakeError, HandshakeErrorKind};
+pub use self::errors::HandshakeError;
 
 use hmac::{Hmac, Mac, NewMac};
 use rand;
@@ -235,9 +235,7 @@ impl Handshake {
                 Stage::WaitingForPacket0 => self.parse_p0(),
                 Stage::WaitingForPacket1 => self.parse_p1(),
                 Stage::WaitingForPacket2 => self.parse_p2(),
-                Stage::Complete => Err(HandshakeError {
-                    kind: HandshakeErrorKind::HandshakeAlreadyCompleted,
-                }),
+                Stage::Complete => Err(HandshakeError::HandshakeAlreadyCompleted),
             };
 
             match result {
@@ -281,9 +279,7 @@ impl Handshake {
 
         self.command_byte = self.input_buffer.remove(0);
         if self.command_byte != 3_u8 {
-            return Err(HandshakeError {
-                kind: HandshakeErrorKind::BadVersionId,
-            });
+            return Err(HandshakeError::BadVersionId);
         };
 
         self.current_stage = Stage::WaitingForPacket1;
@@ -320,9 +316,7 @@ impl Handshake {
 
         let received_digest = match get_digest_for_received_packet(&received_packet_1, &p1_key) {
             Ok(digest) => digest,
-            Err(HandshakeError {
-                kind: HandshakeErrorKind::UnknownPacket1Format,
-            }) => {
+            Err(HandshakeError::UnknownPacket1Format) => {
                 // Since no digest was found chances are that this handshake is
                 // not a fp9 handshake but instead is the handshake from the
                 // original RTMP specification. If that's the case then this
@@ -443,9 +437,7 @@ fn get_digest_for_received_packet(
     match true {
         _ if v1_hmac == v1_parts.digest => Ok(v1_parts.digest),
         _ if v2_hmac == v2_parts.digest => Ok(v2_parts.digest),
-        _ => Err(HandshakeError {
-            kind: HandshakeErrorKind::UnknownPacket1Format,
-        }),
+        _ => Err(HandshakeError::UnknownPacket1Format),
     }
 }
 
@@ -703,9 +695,7 @@ mod tests {
 
         match handshake.process_bytes(&input) {
             Ok(_) => panic!("No error was returned"),
-            Err(HandshakeError {
-                kind: HandshakeErrorKind::BadVersionId,
-            }) => {}
+            Err(HandshakeError::BadVersionId) => {}
             Err(x) => panic!("Unexpected error received of {:?}", x),
         }
     }

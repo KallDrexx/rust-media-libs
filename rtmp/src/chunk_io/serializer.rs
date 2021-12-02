@@ -1,6 +1,6 @@
 use super::chunk_header::{ChunkHeader, ChunkHeaderFormat};
 use byteorder::{BigEndian, LittleEndian, WriteBytesExt};
-use chunk_io::{ChunkSerializationError, ChunkSerializationErrorKind};
+use chunk_io::ChunkSerializationError;
 use messages::{MessagePayload, RtmpMessage};
 use std::cmp::min;
 use std::collections::HashMap;
@@ -55,10 +55,8 @@ impl ChunkSerializer {
         time: RtmpTimestamp,
     ) -> Result<Packet, ChunkSerializationError> {
         if new_size > 2147483647 {
-            return Err(ChunkSerializationError {
-                kind: ChunkSerializationErrorKind::InvalidMaxChunkSize {
-                    attempted_chunk_size: new_size,
-                },
+            return Err(ChunkSerializationError::InvalidMaxChunkSize {
+                attempted_chunk_size: new_size,
             });
         }
 
@@ -97,10 +95,8 @@ impl ChunkSerializer {
         can_be_dropped: bool,
     ) -> Result<Packet, ChunkSerializationError> {
         if message.data.len() > 16777215 {
-            return Err(ChunkSerializationError {
-                kind: ChunkSerializationErrorKind::MessageTooLong {
-                    size: message.data.len() as u32,
-                },
+            return Err(ChunkSerializationError::MessageTooLong {
+                size: message.data.len() as u32,
             });
         }
 
