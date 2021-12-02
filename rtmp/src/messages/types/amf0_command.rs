@@ -5,7 +5,7 @@ use std::io::Cursor;
 
 use messages::RtmpMessage;
 use messages::{
-    MessageDeserializationError, MessageDeserializationErrorKind, MessageSerializationError,
+    MessageDeserializationError, MessageSerializationError,
 };
 
 pub fn serialize(
@@ -38,31 +38,27 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
 
         command_name = match arg_iterator
             .next()
-            .ok_or(MessageDeserializationErrorKind::InvalidMessageFormat)?
+            .ok_or(MessageDeserializationError::InvalidMessageFormat)?
         {
             Amf0Value::Utf8String(value) => value,
             _ => {
-                return Err(MessageDeserializationError {
-                    kind: MessageDeserializationErrorKind::InvalidMessageFormat,
-                })
+                return Err(MessageDeserializationError::InvalidMessageFormat)
             }
         };
 
         transaction_id = match arg_iterator
             .next()
-            .ok_or(MessageDeserializationErrorKind::InvalidMessageFormat)?
+            .ok_or(MessageDeserializationError::InvalidMessageFormat)?
         {
             Amf0Value::Number(value) => value,
             _ => {
-                return Err(MessageDeserializationError {
-                    kind: MessageDeserializationErrorKind::InvalidMessageFormat,
-                })
+                return Err(MessageDeserializationError::InvalidMessageFormat)
             }
         };
 
         command_object = arg_iterator
             .next()
-            .ok_or(MessageDeserializationErrorKind::InvalidMessageFormat)?;
+            .ok_or(MessageDeserializationError::InvalidMessageFormat)?;
     }
 
     Ok(RtmpMessage::Amf0Command {

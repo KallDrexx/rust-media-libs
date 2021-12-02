@@ -30,8 +30,8 @@
 //! ```
 
 #[macro_use]
-extern crate failure;
 extern crate byteorder;
+extern crate thiserror;
 
 mod deserialization;
 mod errors;

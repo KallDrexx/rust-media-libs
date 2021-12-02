@@ -3,7 +3,7 @@ use bytes::Bytes;
 use std::io::Cursor;
 
 use messages::{
-    MessageDeserializationError, MessageDeserializationErrorKind, MessageSerializationError,
+    MessageDeserializationError, MessageSerializationError,
 };
 use messages::{PeerBandwidthLimitType, RtmpMessage};
 
@@ -33,9 +33,7 @@ pub fn deserialize(data: Bytes) -> Result<RtmpMessage, MessageDeserializationErr
         1 => PeerBandwidthLimitType::Soft,
         2 => PeerBandwidthLimitType::Dynamic,
         _ => {
-            return Err(MessageDeserializationError {
-                kind: MessageDeserializationErrorKind::InvalidMessageFormat,
-            })
+            return Err(MessageDeserializationError::InvalidMessageFormat);
         }
     };
 

@@ -23,7 +23,7 @@ use std::time::SystemTime;
 use time::RtmpTimestamp;
 
 pub use self::config::ServerSessionConfig;
-pub use self::errors::{ServerSessionError, ServerSessionErrorKind};
+pub use self::errors::ServerSessionError;
 pub use self::events::{PlayStartValue, ServerSessionEvent};
 pub use self::publish_mode::PublishMode;
 pub use self::result::ServerSessionResult;
@@ -248,9 +248,7 @@ impl ServerSession {
         let request = match self.outstanding_requests.remove(&request_id) {
             Some(x) => x,
             None => {
-                return Err(ServerSessionError {
-                    kind: ServerSessionErrorKind::InvalidRequestId,
-                })
+                return Err(ServerSessionError::InvalidRequestId)
             }
         };
 
@@ -435,9 +433,7 @@ impl ServerSession {
         let mut properties = match command_object {
             Amf0Value::Object(properties) => properties,
             _ => {
-                return Err(ServerSessionError {
-                    kind: ServerSessionErrorKind::NoAppNameForConnectionRequest,
-                })
+                return Err(ServerSessionError::NoAppNameForConnectionRequest)
             }
         };
 
@@ -451,15 +447,11 @@ impl ServerSession {
                     app
                 }
                 _ => {
-                    return Err(ServerSessionError {
-                        kind: ServerSessionErrorKind::NoAppNameForConnectionRequest,
-                    })
+                    return Err(ServerSessionError::NoAppNameForConnectionRequest)
                 }
             },
             None => {
-                return Err(ServerSessionError {
-                    kind: ServerSessionErrorKind::NoAppNameForConnectionRequest,
-                })
+                return Err(ServerSessionError::NoAppNameForConnectionRequest)
             }
         };
 
@@ -1116,11 +1108,9 @@ impl ServerSession {
             }
 
             None => {
-                return Err(ServerSessionError {
-                    kind: ServerSessionErrorKind::ActionAttemptedOnInactiveStream {
-                        action: "publish".to_string(),
-                        stream_id,
-                    },
+                return Err(ServerSessionError::ActionAttemptedOnInactiveStream {
+                    action: "publish".to_string(),
+                    stream_id
                 })
             }
         };
@@ -1177,11 +1167,9 @@ impl ServerSession {
             }
 
             None => {
-                return Err(ServerSessionError {
-                    kind: ServerSessionErrorKind::ActionAttemptedOnInactiveStream {
-                        action: "play".to_string(),
-                        stream_id,
-                    },
+                return Err(ServerSessionError::ActionAttemptedOnInactiveStream {
+                    action: "play".to_string(),
+                    stream_id,
                 });
             }
         }
