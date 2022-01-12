@@ -48,6 +48,7 @@ fn read_next_value<R: Read>(bytes: &mut R) -> Result<Option<Amf0Value>, Amf0Dese
         markers::OBJECT_MARKER => parse_object(bytes).map(Some),
         markers::ECMA_ARRAY_MARKER => parse_ecma_array(bytes).map(Some),
         markers::STRING_MARKER => parse_string(bytes).map(Some),
+        markers::STRICT_ARRAY_MARKER => parse_strict_array(bytes).map(Some),
         _ => Err(Amf0DeserializationError::UnknownMarker { marker: buffer[0] }),
     }
 }
@@ -115,6 +116,20 @@ fn parse_ecma_array<R: Read>(bytes: &mut R) -> Result<Amf0Value, Amf0Deserializa
     parse_object(bytes)
 }
 
+fn parse_strict_array<R: Read>(bytes: &mut R) -> Result<Amf0Value, Amf0DeserializationError> {
+    let _array_count = bytes.read_u32::<BigEndian>()?;
+    let mut values: Vec<Amf0Value> = Vec::new();
+
+    for _ in 0.._array_count {
+        match read_next_value(bytes)? {
+            Some(value) => { values.push(value); }
+            None => break,
+        };
+    }
+
+    Ok(Amf0Value::StrictArray(values))
+}
+
 fn parse_object_property<R: Read>(
     bytes: &mut R,
 ) -> Result<Option<ObjectProperty>, Amf0DeserializationError> {
@@ -152,6 +167,28 @@ mod tests {
     use markers;
     use std::collections::HashMap;
     use std::io::Cursor;
+
+    #[test]
+    fn can_deserialize_strict_array() {
+        let mut vector = vec![];
+        vector.push(markers::STRICT_ARRAY_MARKER);
+        vector.write_u32::<BigEndian>(2).unwrap();
+        vector.push(markers::NUMBER_MARKER);
+        vector.write_f64::<BigEndian>(1.0).unwrap();
+        vector.push(markers::NUMBER_MARKER);
+        vector.write_f64::<BigEndian>(2.0).unwrap();
+
+        let mut input = Cursor::new(vector);
+        let result = deserialize(&mut input).unwrap();
+
+        let mut array = Vec::new();
+
+        array.push(Amf0Value::Number(1.0));
+        array.push(Amf0Value::Number(2.0));
+
+        let expected = vec![Amf0Value::StrictArray(array)];
+        assert_eq!(result, expected);
+    }
 
     #[test]
     fn can_deserialize_number() {

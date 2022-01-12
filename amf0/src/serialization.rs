@@ -26,6 +26,7 @@ fn serialize_value(value: &Amf0Value, bytes: &mut Vec<u8>) -> Result<(), Amf0Ser
         Amf0Value::Number(ref val) => serialize_number(&val, bytes),
         Amf0Value::Utf8String(ref val) => serialize_string(&val, bytes),
         Amf0Value::Object(ref val) => serialize_object(&val, bytes),
+        Amf0Value::StrictArray(ref val) => serialize_strict_array(&val, bytes),
     }
 }
 
@@ -77,6 +78,21 @@ fn serialize_object(
     Ok(())
 }
 
+fn serialize_strict_array(
+    array: &Vec<Amf0Value>,
+    bytes: &mut Vec<u8>,
+) -> Result<(), Amf0SerializationError> {
+    bytes.push(markers::STRICT_ARRAY_MARKER);
+
+    bytes.write_u32::<BigEndian>(array.len() as u32)?;
+
+    for value in array {
+        serialize_value(&value, bytes)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::errors::Amf0SerializationError;
@@ -85,6 +101,26 @@ mod tests {
     use byteorder::{BigEndian, WriteBytesExt};
     use markers;
     use std::collections::HashMap;
+
+    #[test]
+    fn can_serialize_strict_array() {
+        let number: f64 = 332.0;
+
+        let value = Amf0Value::Number(number);
+
+        let input = vec![Amf0Value::StrictArray(vec![value])];
+
+        let result = serialize(&input).unwrap();
+
+        let mut expected = vec![];
+
+        expected.write_u8(markers::STRICT_ARRAY_MARKER).unwrap();
+        expected.write_u32::<BigEndian>(1).unwrap();
+        expected.write_u8(markers::NUMBER_MARKER).unwrap();
+        expected.write_f64::<BigEndian>(number).unwrap();
+
+        assert_eq!(result, expected);
+    }
 
     #[test]
     fn can_serialize_number() {
