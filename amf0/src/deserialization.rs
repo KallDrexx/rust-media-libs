@@ -122,7 +122,9 @@ fn parse_strict_array<R: Read>(bytes: &mut R) -> Result<Amf0Value, Amf0Deseriali
 
     for _ in 0.._array_count {
         match read_next_value(bytes)? {
-            Some(value) => { values.push(value); }
+            Some(value) => {
+                values.push(value);
+            }
             None => break,
         };
     }
