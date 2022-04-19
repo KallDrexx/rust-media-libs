@@ -1,10 +1,12 @@
 extern crate bytes;
 extern crate rml_amf0;
 extern crate rml_rtmp;
+extern crate hdrhistogram;
 
 use bytes::Bytes;
 use std::collections::HashMap;
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
+use hdrhistogram::Histogram;
 
 use rml_amf0::Amf0Value;
 use rml_rtmp::chunk_io::ChunkSerializer;
@@ -15,6 +17,7 @@ use rml_rtmp::sessions::{
 use rml_rtmp::time::RtmpTimestamp;
 
 const ITERATION_COUNT: u32 = 50_000;
+const PLAYER_COUNT: u32 = 100;
 static APP_NAME: &'static str = "live";
 static STREAM_KEY: &'static str = "stream_key";
 
@@ -27,13 +30,17 @@ fn main() {
     };
 
     let (mut publisher, mut publisher_serializer) = create_publishing_session();
-    let mut player1 = create_player_session();
-    let mut player2 = create_player_session();
+    let mut players = Vec::new();
+    for _ in 0..PLAYER_COUNT {
+        players.push(create_player_session())
+    }
 
-    println!("Running {} iterations", iteration_count);
+    println!("Running {} iterations with {} players", iteration_count, PLAYER_COUNT);
+
+    let mut histogram = Histogram::<u64>::new(2).unwrap();
 
     let mut vector = Vec::new();
-    vector.extend_from_slice(&[1_u8; 10_000]);
+    vector.extend_from_slice(&[1_u8; 3000]);
 
     let bytes = Bytes::from(vector);
     let video_message = RtmpMessage::VideoData { data: bytes };
@@ -47,6 +54,7 @@ fn main() {
     let start = SystemTime::now();
 
     for _ in 0..iteration_count {
+        let loop_start = Instant::now();
         let results = publisher.handle_input(&video_packet.bytes[..]).unwrap();
 
         for result in results {
@@ -60,23 +68,33 @@ fn main() {
                         data,
                         timestamp,
                     } => {
-                        player1
-                            .send_video_data(1, data.clone(), timestamp.clone(), true)
-                            .unwrap();
-                        player2
-                            .send_video_data(1, data.clone(), timestamp.clone(), true)
-                            .unwrap();
+                        for player in &mut players {
+                            player.
+                                send_video_data(1, data.clone(), timestamp.clone(), true)
+                                .unwrap();
+                        }
                     }
 
                     _ => (),
                 },
             }
         }
+
+        let elapsed = loop_start.elapsed();
+        histogram.record(elapsed.as_micros() as u64).unwrap();
     }
 
     let elapsed = start.elapsed().unwrap();
     let total_ns = elapsed.as_secs() * 1_000_000_000 + elapsed.subsec_nanos() as u64;
     let average_ns = total_ns / iteration_count as u64;
+
+    println!("50th: {}, 75th: {}, 90th: {}, 99th: {} 99.9th: {}",
+        histogram.value_at_percentile(50.0),
+        histogram.value_at_percentile(75.0),
+        histogram.value_at_percentile(90.0),
+        histogram.value_at_percentile(99.0),
+        histogram.value_at_percentile(99.9),
+    );
 
     println!(
         "Took {}.{:09} seconds (avg {}ns)",

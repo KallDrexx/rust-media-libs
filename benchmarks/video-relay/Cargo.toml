@@ -8,3 +8,4 @@ description = "Benchmark to test the speed of one publisher relaying video to tw
 rml_rtmp = { path = "../../rtmp" }
 rml_amf0 = { path = "../../amf0" }
 bytes = "1"
+hdrhistogram = "7.5.0"
