@@ -72,7 +72,7 @@ impl ClientSession {
     pub fn new(
         config: ClientSessionConfig,
     ) -> Result<(ClientSession, Vec<ClientSessionResult>), ClientSessionError> {
-        let mut session = ClientSession {
+        let session = ClientSession {
             start_time: SystemTime::now(),
             serializer: ChunkSerializer::new(),
             deserializer: ChunkDeserializer::new(),
@@ -87,11 +87,11 @@ impl ClientSession {
             config,
         };
 
-        let mut results = Vec::with_capacity(1);
-        let chunk_size_packet = session
-            .serializer
-            .set_max_chunk_size(session.config.chunk_size, RtmpTimestamp::new(0))?;
-        results.push(ClientSessionResult::OutboundResponse(chunk_size_packet));
+        let results = Vec::with_capacity(1);
+        // let chunk_size_packet = session
+        //     .serializer
+        //     .set_max_chunk_size(session.config.chunk_size, RtmpTimestamp::new(0))?;
+        // results.push(ClientSessionResult::OutboundResponse(chunk_size_packet));
 
         Ok((session, results))
     }
@@ -717,9 +717,15 @@ impl ClientSession {
                 let payload = message.into_message_payload(self.get_epoch(), 0)?;
                 let packet = self.serializer.serialize(&payload, false, false)?;
                 let event = ClientSessionEvent::ConnectionRequestAccepted;
+
+                let chunk_size_packet = self
+                    .serializer
+                    .set_max_chunk_size(self.config.chunk_size, RtmpTimestamp::new(0))?;
+
                 Ok(vec![
                     ClientSessionResult::OutboundResponse(packet),
                     ClientSessionResult::RaisedEvent(event),
+                    ClientSessionResult::OutboundResponse(chunk_size_packet),
                 ])
             }
 
