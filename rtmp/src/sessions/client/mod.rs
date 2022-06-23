@@ -88,10 +88,6 @@ impl ClientSession {
         };
 
         let results = Vec::with_capacity(1);
-        // let chunk_size_packet = session
-        //     .serializer
-        //     .set_max_chunk_size(session.config.chunk_size, RtmpTimestamp::new(0))?;
-        // results.push(ClientSessionResult::OutboundResponse(chunk_size_packet));
 
         Ok((session, results))
     }
