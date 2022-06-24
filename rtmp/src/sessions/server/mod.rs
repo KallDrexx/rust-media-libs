@@ -285,8 +285,8 @@ impl ServerSession {
             .video_height
             .map(|x| properties.insert("height".to_string(), Amf0Value::Number(x as f64)));
 
-        metadata.video_codec.as_ref().map(|x| {
-            properties.insert("videocodecid".to_string(), Amf0Value::Utf8String(x.clone()))
+        metadata.video_codec_id.map(|x| {
+            properties.insert("videocodecid".to_string(), Amf0Value::Number(x as f64))
         });
 
         metadata
@@ -297,8 +297,8 @@ impl ServerSession {
             .video_frame_rate
             .map(|x| properties.insert("framerate".to_string(), Amf0Value::Number(x as f64)));
 
-        metadata.audio_codec.as_ref().map(|x| {
-            properties.insert("audiocodecid".to_string(), Amf0Value::Utf8String(x.clone()))
+        metadata.audio_codec_id.map(|x| {
+            properties.insert("audiocodecid".to_string(), Amf0Value::Number(x as f64))
         });
 
         metadata

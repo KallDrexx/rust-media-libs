@@ -492,13 +492,13 @@ fn can_receive_and_raise_event_for_metadata_from_obs() {
     properties.insert("height".to_string(), Amf0Value::Number(1080_f64));
     properties.insert(
         "videocodecid".to_string(),
-        Amf0Value::Utf8String("avc1".to_string()),
+        Amf0Value::Number(10.0),
     );
     properties.insert("videodatarate".to_string(), Amf0Value::Number(1200_f64));
     properties.insert("framerate".to_string(), Amf0Value::Number(30_f64));
     properties.insert(
         "audiocodecid".to_string(),
-        Amf0Value::Utf8String("mp4a".to_string()),
+        Amf0Value::Number(7.0),
     );
     properties.insert("audiodatarate".to_string(), Amf0Value::Number(96_f64));
     properties.insert("audiosamplerate".to_string(), Amf0Value::Number(48000_f64));
@@ -543,8 +543,8 @@ fn can_receive_and_raise_event_for_metadata_from_obs() {
             assert_eq!(metadata.video_width, Some(1920), "Unexpected video width");
             assert_eq!(metadata.video_height, Some(1080), "Unexepcted video height");
             assert_eq!(
-                metadata.video_codec,
-                Some("avc1".to_string()),
+                metadata.video_codec_id,
+                Some(10),
                 "Unexepcted video codec"
             );
             assert_eq!(
@@ -558,8 +558,8 @@ fn can_receive_and_raise_event_for_metadata_from_obs() {
                 "Unexpected video bitrate"
             );
             assert_eq!(
-                metadata.audio_codec,
-                Some("mp4a".to_string()),
+                metadata.audio_codec_id,
+                Some(7),
                 "Unexpected audio codec"
             );
             assert_eq!(
@@ -1335,12 +1335,12 @@ fn can_send_metadata_to_playing_stream() {
     let metadata = StreamMetadata {
         audio_bitrate_kbps: Some(100),
         audio_channels: Some(101),
-        audio_codec: Some("102".to_string()),
+        audio_codec_id: Some(7),
         audio_is_stereo: Some(true),
         audio_sample_rate: Some(103),
         encoder: Some("104".to_string()),
         video_bitrate_kbps: Some(105),
-        video_codec: Some("106".to_string()),
+        video_codec_id: Some(10),
         video_frame_rate: Some(107.0),
         video_height: Some(108),
         video_width: Some(109),
@@ -1378,7 +1378,7 @@ fn can_send_metadata_to_playing_stream() {
                     );
                     assert_eq!(
                         properties.get("videocodecid"),
-                        Some(&Amf0Value::Utf8String("106".to_string())),
+                        Some(&Amf0Value::Number(10.0)),
                         "Unexpected videocodecid"
                     );
                     assert_eq!(
@@ -1393,7 +1393,7 @@ fn can_send_metadata_to_playing_stream() {
                     );
                     assert_eq!(
                         properties.get("audiocodecid"),
-                        Some(&Amf0Value::Utf8String("102".to_string())),
+                        Some(&Amf0Value::Number(7.0)),
                         "Unexpected audiocodecid"
                     );
                     assert_eq!(

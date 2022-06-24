@@ -409,8 +409,8 @@ impl ClientSession {
             properties.insert("height".to_string(), Amf0Value::Number(x as f64));
         }
 
-        if let Some(ref x) = metadata.video_codec {
-            properties.insert("videocodecid".to_string(), Amf0Value::Utf8String(x.clone()));
+        if let Some(x) = metadata.video_codec_id {
+            properties.insert("videocodecid".to_string(), Amf0Value::Number(x as f64));
         }
 
         if let Some(x) = metadata.video_frame_rate {
@@ -421,8 +421,8 @@ impl ClientSession {
             properties.insert("videodatarate".to_string(), Amf0Value::Number(x as f64));
         }
 
-        if let Some(ref x) = metadata.audio_codec {
-            properties.insert("audiocodecid".to_string(), Amf0Value::Utf8String(x.clone()));
+        if let Some(x) = metadata.audio_codec_id {
+            properties.insert("audiocodecid".to_string(), Amf0Value::Number(x as f64));
         }
 
         if let Some(x) = metadata.audio_bitrate_kbps {

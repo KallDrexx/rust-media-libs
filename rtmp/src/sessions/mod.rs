@@ -38,10 +38,10 @@ use std::collections::HashMap;
 pub struct StreamMetadata {
     pub video_width: Option<u32>,
     pub video_height: Option<u32>,
-    pub video_codec: Option<String>,
+    pub video_codec_id: Option<u32>,
     pub video_frame_rate: Option<f32>,
     pub video_bitrate_kbps: Option<u32>,
-    pub audio_codec: Option<String>,
+    pub audio_codec_id: Option<u32>,
     pub audio_bitrate_kbps: Option<u32>,
     pub audio_sample_rate: Option<u32>,
     pub audio_channels: Option<u32>,
@@ -55,10 +55,10 @@ impl StreamMetadata {
         StreamMetadata {
             video_width: None,
             video_height: None,
-            video_codec: None,
+            video_codec_id: None,
             video_frame_rate: None,
             video_bitrate_kbps: None,
-            audio_codec: None,
+            audio_codec_id: None,
             audio_bitrate_kbps: None,
             audio_sample_rate: None,
             audio_channels: None,
@@ -83,8 +83,8 @@ impl StreamMetadata {
                     None => (),
                 },
 
-                "videocodecid" => match value.get_string() {
-                    Some(x) => self.video_codec = Some(x),
+                "videocodecid" => match value.get_number() {
+                    Some(x) => self.video_codec_id = Some(x as u32),
                     None => (),
                 },
 
@@ -98,8 +98,8 @@ impl StreamMetadata {
                     None => (),
                 },
 
-                "audiocodecid" => match value.get_string() {
-                    Some(x) => self.audio_codec = Some(x),
+                "audiocodecid" => match value.get_number() {
+                    Some(x) => self.audio_codec_id = Some(x as u32),
                     None => (),
                 },
 

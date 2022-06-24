@@ -429,13 +429,13 @@ fn active_play_session_raises_events_when_stream_metadata_changes() {
     properties.insert("height".to_string(), Amf0Value::Number(1080_f64));
     properties.insert(
         "videocodecid".to_string(),
-        Amf0Value::Utf8String("avc1".to_string()),
+        Amf0Value::Number(10.0),
     );
     properties.insert("videodatarate".to_string(), Amf0Value::Number(1200_f64));
     properties.insert("framerate".to_string(), Amf0Value::Number(30_f64));
     properties.insert(
         "audiocodecid".to_string(),
-        Amf0Value::Utf8String("mp4a".to_string()),
+        Amf0Value::Number(7.0),
     );
     properties.insert("audiodatarate".to_string(), Amf0Value::Number(96_f64));
     properties.insert("audiosamplerate".to_string(), Amf0Value::Number(48000_f64));
@@ -466,11 +466,7 @@ fn active_play_session_raises_events_when_stream_metadata_changes() {
         ClientSessionEvent::StreamMetadataReceived { metadata } => {
             assert_eq!(metadata.video_width, Some(1920), "Unexpected video width");
             assert_eq!(metadata.video_height, Some(1080), "Unexpected video height");
-            assert_eq!(
-                metadata.video_codec,
-                Some("avc1".to_string()),
-                "Unexpected video codec"
-            );
+            assert_eq!(metadata.video_codec_id, Some(10), "Unexpected video codec");
             assert_eq!(
                 metadata.video_frame_rate,
                 Some(30_f32),
@@ -481,11 +477,7 @@ fn active_play_session_raises_events_when_stream_metadata_changes() {
                 Some(1200),
                 "Unexpected video bitrate"
             );
-            assert_eq!(
-                metadata.audio_codec,
-                Some("mp4a".to_string()),
-                "Unexpected audio codec"
-            );
+            assert_eq!(metadata.audio_codec_id, Some(7), "Unexpected audio codec");
             assert_eq!(
                 metadata.audio_bitrate_kbps,
                 Some(96),
@@ -1334,10 +1326,10 @@ fn publisher_can_send_metadata() {
     let mut metadata = StreamMetadata::new();
     metadata.video_width = Some(100);
     metadata.video_height = Some(101);
-    metadata.video_codec = Some("vcodec".to_string());
+    metadata.video_codec_id = Some(10);
     metadata.video_frame_rate = Some(102.0);
     metadata.video_bitrate_kbps = Some(103);
-    metadata.audio_codec = Some("acodec".to_string());
+    metadata.audio_codec_id = Some(7);
     metadata.audio_bitrate_kbps = Some(104);
     metadata.audio_sample_rate = Some(105);
     metadata.audio_channels = Some(106);
@@ -1385,7 +1377,7 @@ fn publisher_can_send_metadata() {
                     );
                     assert_eq!(
                         properties.get("videocodecid"),
-                        Some(&Amf0Value::Utf8String("vcodec".to_string())),
+                        Some(&Amf0Value::Number(10.0)),
                         "Unexpected video codec"
                     );
                     assert_eq!(
@@ -1400,7 +1392,7 @@ fn publisher_can_send_metadata() {
                     );
                     assert_eq!(
                         properties.get("audiocodecid"),
-                        Some(&Amf0Value::Utf8String("acodec".to_string())),
+                        Some(&Amf0Value::Number(7.0)),
                         "Unexpected audio codec"
                     );
                     assert_eq!(
