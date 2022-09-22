@@ -377,6 +377,50 @@ impl ServerSession {
         Ok((packet, epoch))
     }
 
+    /// Changes stream to Completed, and sends out an
+    /// `onStatus(code: NetStream.Play.Complete)`
+    pub fn finish_playing(&mut self, stream_id: u32) -> Result<Packet, ServerSessionError> {
+        let stream_key = match self.active_streams.get_mut(&stream_id) {
+            Some(ActiveStream {
+                current_state: state,
+            }) => {
+                let k = match state {
+                    StreamState::Playing { stream_key: k } => k.clone(),
+                    _ => {
+                        return Err(ServerSessionError::ActionAttemptedOnInactiveStream {
+                            action: "complete".to_string(),
+                            stream_id,
+                        })
+                    }
+                };
+                *state = StreamState::Completed;
+                k
+            }
+            _ => {
+                return Err(ServerSessionError::ActionAttemptedOnInactiveStream {
+                    action: "complete".to_string(),
+                    stream_id,
+                });
+            }
+        };
+
+        let description = format!("Stream playback is completed for {}", stream_key);
+        let status_message = RtmpMessage::Amf0Command {
+            command_name: "onStatus".to_string(),
+            transaction_id: 0.0,
+            command_object: Amf0Value::Null,
+            additional_arguments: vec![Amf0Value::Object(create_status_object(
+                "status",
+                "NetStream.Play.Complete",
+                description.as_ref(),
+            ))],
+        };
+
+        let payload = status_message.into_message_payload(self.get_epoch(), stream_id)?;
+
+        Ok(self.serializer.serialize(&payload, false, false)?)
+    }
+
     fn handle_abort_message(
         &self,
         _stream_id: u32,

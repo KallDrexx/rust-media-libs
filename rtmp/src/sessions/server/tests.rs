@@ -1687,6 +1687,77 @@ fn can_send_ping_request() {
 }
 
 #[test]
+fn can_finish_playing_stream() {
+    let config = get_basic_config();
+    let test_app_name = "some_app".to_string();
+    let test_stream_key = "SOME_STREAM_KEY".to_string();
+
+    let mut deserializer = ChunkDeserializer::new();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, results);
+    perform_connection(
+        test_app_name.as_ref(),
+        &mut session,
+        &mut serializer,
+        &mut deserializer,
+    );
+    let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
+    start_playing(
+        test_stream_key.as_ref(),
+        stream_id,
+        &mut session,
+        &mut serializer,
+        &mut deserializer,
+    );
+
+    let packet = session.finish_playing(stream_id).unwrap();
+    let payload = deserializer
+        .get_next_message(&packet.bytes[..])
+        .unwrap()
+        .unwrap();
+    let message = payload.to_rtmp_message().unwrap();
+
+    match message {
+        RtmpMessage::Amf0Command {
+            command_name,
+            transaction_id,
+            command_object: Amf0Value::Null,
+            additional_arguments: mut args,
+        } => {
+            assert_eq!(
+                command_name,
+                "onStatus".to_string(),
+                "Unexpected command name"
+            );
+            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
+            assert_eq!(args.len(), 1, "Unexpected number of additional arguments");
+
+            let command = args.pop().unwrap().get_object_properties().unwrap();
+
+            assert_eq!(
+                command.get("level"),
+                Some(&Amf0Value::Utf8String("status".to_string()))
+            );
+            assert_eq!(
+                command.get("code"),
+                Some(&Amf0Value::Utf8String(
+                    "NetStream.Play.Complete".to_string()
+                ))
+            );
+            assert_eq!(
+                command.get("description"),
+                Some(&Amf0Value::Utf8String(
+                    "Stream playback is completed for SOME_STREAM_KEY".to_string()
+                ))
+            );
+        }
+
+        x => panic!("Expected onStatus command, received: {:?}", x),
+    }
+}
+
+#[test]
 fn sends_ack_after_receiving_window_ack_bytes() {
     let config = get_basic_config();
     let test_app_name = "some_app".to_string();
