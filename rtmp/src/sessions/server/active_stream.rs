@@ -11,6 +11,8 @@ pub enum StreamState {
     Playing {
         stream_key: String,
     },
+
+    Completed,
 }
 
 pub struct ActiveStream {
