@@ -394,57 +394,7 @@ fn can_accept_live_publishing_to_requested_stream_key() {
         ),
     }
 
-    match responses.remove(0) {
-        (
-            _,
-            RtmpMessage::Amf0Command {
-                command_name,
-                transaction_id,
-                command_object: Amf0Value::Null,
-                additional_arguments,
-            },
-        ) => {
-            assert_eq!(
-                command_name,
-                "onStatus".to_string(),
-                "Unexpected command name"
-            );
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(
-                additional_arguments.len(),
-                1,
-                "Unexpected number of additional arguments"
-            );
-
-            match additional_arguments[0] {
-                Amf0Value::Object(ref properties) => {
-                    assert_eq!(
-                        properties.get("level"),
-                        Some(&Amf0Value::Utf8String("status".to_string())),
-                        "Unexpected level value"
-                    );
-                    assert_eq!(
-                        properties.get("code"),
-                        Some(&Amf0Value::Utf8String(
-                            "NetStream.Publish.Start".to_string()
-                        )),
-                        "Unexpected code value"
-                    );
-                    assert!(
-                        properties.contains_key("description"),
-                        "No description was included"
-                    );
-                }
-
-                _ => panic!(
-                    "Unexpected first additional argument received: {:?}",
-                    additional_arguments[0]
-                ),
-            }
-        }
-
-        x => panic!("Unexpected first response: {:?}", x),
-    }
+    verify_is_onstatus(&responses.remove(0).1, "status", "NetStream.Publish.Start");
 }
 
 #[test]
@@ -875,53 +825,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
     let (mut responses, _) = split_results(&mut deserializer, accept_results);
     assert_eq!(responses.len(), 5, "Unexpected number of messages received");
 
-    match responses.remove(0) {
-        (
-            _,
-            RtmpMessage::Amf0Command {
-                command_name,
-                transaction_id,
-                command_object,
-                mut additional_arguments,
-            },
-        ) => {
-            assert_eq!(
-                command_name,
-                "onStatus".to_string(),
-                "Unexpected command name"
-            );
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
-            assert_eq!(
-                additional_arguments.len(),
-                1,
-                "Unexpected number of additional arguments"
-            );
-
-            match additional_arguments.remove(0) {
-                Amf0Value::Object(ref properties) => {
-                    assert_eq!(
-                        properties.get("level"),
-                        Some(&Amf0Value::Utf8String("status".to_string())),
-                        "Unexpected level value"
-                    );
-                    assert_eq!(
-                        properties.get("code"),
-                        Some(&Amf0Value::Utf8String("NetStream.Play.Reset".to_string())),
-                        "Unexpected code value"
-                    );
-                    assert!(
-                        properties.contains_key("description"),
-                        "Expected description"
-                    );
-                }
-
-                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
-            }
-        }
-
-        x => panic!("Expected play reset command, instead received: {:?}", x),
-    }
+    verify_is_onstatus(&responses.remove(0).1, "status", "NetStream.Play.Reset");
 
     match responses.remove(0) {
         (
@@ -946,56 +850,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
         x => println!("Expected stream begin message, instead received: {:?}", x),
     }
 
-    match responses.remove(0) {
-        (
-            _,
-            RtmpMessage::Amf0Command {
-                command_name,
-                transaction_id,
-                command_object,
-                mut additional_arguments,
-            },
-        ) => {
-            assert_eq!(
-                command_name,
-                "onStatus".to_string(),
-                "Unexpected command name"
-            );
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
-            assert_eq!(
-                additional_arguments.len(),
-                1,
-                "Unexpected number of additional arguments"
-            );
-
-            match additional_arguments.remove(0) {
-                Amf0Value::Object(ref properties) => {
-                    assert_eq!(
-                        properties.get("level"),
-                        Some(&Amf0Value::Utf8String("status".to_string())),
-                        "Unexpected level value"
-                    );
-                    assert_eq!(
-                        properties.get("code"),
-                        Some(&Amf0Value::Utf8String("NetStream.Play.Start".to_string())),
-                        "Unexpected code value"
-                    );
-                    assert!(
-                        properties.contains_key("description"),
-                        "Expected description"
-                    );
-                }
-
-                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
-            }
-        }
-
-        x => panic!(
-            "Expected netstream play status command, instead received: {:?}",
-            x
-        ),
-    }
+    verify_is_onstatus(&responses.remove(0).1, "status", "NetStream.Play.Start");
 
     match responses.remove(0) {
         (_, RtmpMessage::Amf0Data { values }) => {
@@ -1579,43 +1434,7 @@ fn can_finish_playing_stream() {
         .unwrap();
     let message = payload.to_rtmp_message().unwrap();
 
-    match message {
-        RtmpMessage::Amf0Command {
-            command_name,
-            transaction_id,
-            command_object: Amf0Value::Null,
-            additional_arguments: mut args,
-        } => {
-            assert_eq!(
-                command_name,
-                "onStatus".to_string(),
-                "Unexpected command name"
-            );
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(args.len(), 1, "Unexpected number of additional arguments");
-
-            let command = args.pop().unwrap().get_object_properties().unwrap();
-
-            assert_eq!(
-                command.get("level"),
-                Some(&Amf0Value::Utf8String("status".to_string()))
-            );
-            assert_eq!(
-                command.get("code"),
-                Some(&Amf0Value::Utf8String(
-                    "NetStream.Play.Complete".to_string()
-                ))
-            );
-            assert_eq!(
-                command.get("description"),
-                Some(&Amf0Value::Utf8String(
-                    "Stream playback is completed for SOME_STREAM_KEY".to_string()
-                ))
-            );
-        }
-
-        x => panic!("Expected onStatus command, received: {:?}", x),
-    }
+    verify_is_onstatus(&message, "status", "NetStream.Play.Complete");
 }
 
 #[test]
@@ -2003,4 +1822,51 @@ fn start_playing(
 
     let accept_results = session.accept_request(request_id).unwrap();
     consume_results(deserializer, accept_results);
+}
+
+fn verify_is_onstatus(subject: &RtmpMessage, expected_status: &str, expected_code: &str) {
+    match subject {
+        RtmpMessage::Amf0Command {
+            ref command_name,
+            ref transaction_id,
+            ref command_object,
+            ref additional_arguments,
+        } => {
+            assert_eq!(command_name.as_str(), "onStatus", "Unexpected command name");
+            assert_eq!(transaction_id, &0.0, "Unexpected transaction id");
+            assert_eq!(
+                command_object,
+                &Amf0Value::Null,
+                "Unexpected command object"
+            );
+            assert_eq!(
+                additional_arguments.len(),
+                1,
+                "Unexpected number of additional arguments"
+            );
+
+            match additional_arguments.first().unwrap() {
+                Amf0Value::Object(ref properties) => {
+                    assert_eq!(
+                        properties.get("level"),
+                        Some(&Amf0Value::Utf8String(expected_status.to_string())),
+                        "Unexpected level value"
+                    );
+                    assert_eq!(
+                        properties.get("code"),
+                        Some(&Amf0Value::Utf8String(expected_code.to_string())),
+                        "Unexpected code value"
+                    );
+                    assert!(
+                        properties.contains_key("description"),
+                        "Expected description"
+                    );
+                }
+
+                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
+            }
+        }
+
+        x => panic!("Expected Amf0Command command, instead received: {:?}", x),
+    }
 }
