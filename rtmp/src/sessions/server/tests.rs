@@ -9,6 +9,9 @@ const DEFAULT_CHUNK_SIZE: u32 = 1111;
 const DEFAULT_PEER_BANDWIDTH: u32 = 2222;
 const DEFAULT_WINDOW_ACK_SIZE: u32 = 3333;
 
+const TEST_APP_NAME: &str = "some_app";
+const TEST_STREAM_KEY: &str = "stream_key";
+
 #[test]
 fn new_config_creates_initial_responses() {
     let config = get_basic_config();
@@ -67,10 +70,7 @@ fn new_config_creates_initial_responses() {
 #[test]
 fn can_accept_connection_request() {
     let config = get_basic_config();
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, initial_results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, initial_results);
+    let (mut deserializer, mut serializer, mut session) = common_setup(&config);
 
     let connect_payload = create_connect_message("some_app".to_string(), 15, 0, 0.0);
     let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
@@ -162,11 +162,7 @@ fn can_accept_connection_request() {
 
 #[test]
 fn connect_request_strips_trailing_slash() {
-    let config = get_basic_config();
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, initial_results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, initial_results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
 
     let connect_payload = create_connect_message("some_app/".to_string(), 15, 0, 0.0);
     let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
@@ -191,10 +187,7 @@ fn connect_request_strips_trailing_slash() {
 #[test]
 fn accepted_connection_responds_with_same_object_encoding_value_as_connection_request() {
     let config = get_basic_config();
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_setup(&config);
 
     let connect_payload = create_connect_message("some_app".to_string(), 15, 0, 3.0);
     let connect_packet = serializer.serialize(&connect_payload, true, false).unwrap();
@@ -286,11 +279,7 @@ fn accepted_connection_responds_with_same_object_encoding_value_as_connection_re
 
 #[test]
 fn can_create_stream_on_connected_session() {
-    let config = get_basic_config();
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection("some_app", &mut session, &mut serializer, &mut deserializer);
 
     let message = RtmpMessage::Amf0Command {
@@ -340,11 +329,7 @@ fn can_create_stream_on_connected_session() {
 
 #[test]
 fn can_accept_live_publishing_to_requested_stream_key() {
-    let config = get_basic_config();
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection("some_app", &mut session, &mut serializer, &mut deserializer);
 
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
@@ -409,78 +394,21 @@ fn can_accept_live_publishing_to_requested_stream_key() {
         ),
     }
 
-    match responses.remove(0) {
-        (
-            _,
-            RtmpMessage::Amf0Command {
-                command_name,
-                transaction_id,
-                command_object: Amf0Value::Null,
-                additional_arguments,
-            },
-        ) => {
-            assert_eq!(
-                command_name,
-                "onStatus".to_string(),
-                "Unexpected command name"
-            );
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(
-                additional_arguments.len(),
-                1,
-                "Unexpected number of additional arguments"
-            );
-
-            match additional_arguments[0] {
-                Amf0Value::Object(ref properties) => {
-                    assert_eq!(
-                        properties.get("level"),
-                        Some(&Amf0Value::Utf8String("status".to_string())),
-                        "Unexpected level value"
-                    );
-                    assert_eq!(
-                        properties.get("code"),
-                        Some(&Amf0Value::Utf8String(
-                            "NetStream.Publish.Start".to_string()
-                        )),
-                        "Unexpected code value"
-                    );
-                    assert!(
-                        properties.contains_key("description"),
-                        "No description was included"
-                    );
-                }
-
-                _ => panic!(
-                    "Unexpected first additional argument received: {:?}",
-                    additional_arguments[0]
-                ),
-            }
-        }
-
-        x => panic!("Unexpected first response: {:?}", x),
-    }
+    verify_is_onstatus(&responses.remove(0).1, "status", "NetStream.Publish.Start");
 }
 
 #[test]
 fn can_receive_and_raise_event_for_metadata_from_obs() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_publishing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -535,9 +463,9 @@ fn can_receive_and_raise_event_for_metadata_from_obs() {
             stream_key,
             metadata,
         } => {
-            assert_eq!(app_name, test_app_name, "Unexpected metadata app name");
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected metadata app name");
             assert_eq!(
-                stream_key, test_stream_key,
+                stream_key, TEST_STREAM_KEY,
                 "Unexpected metadata stream key"
             );
             assert_eq!(metadata.video_width, Some(1920), "Unexpected video width");
@@ -595,23 +523,16 @@ fn can_receive_and_raise_event_for_metadata_from_obs() {
 
 #[test]
 fn can_receive_audio_data_on_published_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_publishing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -637,8 +558,8 @@ fn can_receive_audio_data_on_published_stream() {
             data,
             timestamp,
         } => {
-            assert_eq!(app_name, test_app_name, "Unexpected app name");
-            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, TEST_STREAM_KEY, "Unexpected stream key");
             assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexepcted timestamp");
             assert_eq!(&data[..], &[1_u8, 2_u8, 3_u8], "Unexpected data");
         }
@@ -649,23 +570,16 @@ fn can_receive_audio_data_on_published_stream() {
 
 #[test]
 fn can_receive_video_data_on_published_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_publishing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -691,8 +605,8 @@ fn can_receive_video_data_on_published_stream() {
             data,
             timestamp,
         } => {
-            assert_eq!(app_name, test_app_name, "Unexpected app name");
-            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, TEST_STREAM_KEY, "Unexpected stream key");
             assert_eq!(timestamp, RtmpTimestamp::new(1234), "Unexpected timestamp");
             assert_eq!(&data[..], &[1_u8, 2_u8, 3_u8], "Unexpected data");
         }
@@ -703,23 +617,16 @@ fn can_receive_video_data_on_published_stream() {
 
 #[test]
 fn publish_finished_event_raised_when_delete_stream_invoked_on_publishing_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_publishing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -747,8 +654,8 @@ fn publish_finished_event_raised_when_delete_stream_invoked_on_publishing_stream
             app_name,
             stream_key,
         } => {
-            assert_eq!(app_name, test_app_name, "Unexpected app name");
-            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, TEST_STREAM_KEY, "Unexpected stream key");
         }
 
         event => panic!(
@@ -760,23 +667,16 @@ fn publish_finished_event_raised_when_delete_stream_invoked_on_publishing_stream
 
 #[test]
 fn publish_finished_event_raised_when_close_stream_invoked_on_publishing_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_publishing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -804,8 +704,8 @@ fn publish_finished_event_raised_when_close_stream_invoked_on_publishing_stream(
             app_name,
             stream_key,
         } => {
-            assert_eq!(app_name, test_app_name, "Unexpected app name");
-            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, TEST_STREAM_KEY, "Unexpected stream key");
         }
 
         event => panic!(
@@ -817,23 +717,16 @@ fn publish_finished_event_raised_when_close_stream_invoked_on_publishing_stream(
 
 #[test]
 fn can_request_publishing_on_closed_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_publishing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -846,7 +739,7 @@ fn can_request_publishing_on_closed_stream() {
         transaction_id: 5.0,
         command_object: Amf0Value::Null,
         additional_arguments: vec![
-            Amf0Value::Utf8String(test_stream_key.to_string()),
+            Amf0Value::Utf8String(TEST_STREAM_KEY.to_string()),
             Amf0Value::Utf8String("live".to_string()),
         ],
     };
@@ -868,8 +761,8 @@ fn can_request_publishing_on_closed_stream() {
             request_id: _,
             mode: PublishMode::Live,
         } => {
-            assert_eq!(app_name, &test_app_name, "Unexpected app name");
-            assert_eq!(stream_key, &test_stream_key, "Unexpected stream key");
+            assert_eq!(app_name, &TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, &TEST_STREAM_KEY, "Unexpected stream key");
         }
 
         _ => panic!("Unexpected first event found: {:?}", events[0]),
@@ -878,16 +771,9 @@ fn can_request_publishing_on_closed_stream() {
 
 #[test]
 fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -898,7 +784,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
         command_name: "play".to_string(),
         transaction_id: 4.0,
         command_object: Amf0Value::Null,
-        additional_arguments: vec![Amf0Value::Utf8String(test_stream_key.clone())],
+        additional_arguments: vec![Amf0Value::Utf8String(TEST_STREAM_KEY.to_string())],
     };
 
     let play_payload = message
@@ -919,12 +805,8 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
             request_id,
             stream_id: sid,
         } => {
-            assert_eq!(app_name, test_app_name.as_ref(), "Unexpected app name");
-            assert_eq!(
-                stream_key,
-                test_stream_key.as_ref(),
-                "Unexpected stream key"
-            );
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, TEST_STREAM_KEY, "Unexpected stream key");
             assert_eq!(
                 start_at,
                 PlayStartValue::LiveOrRecorded,
@@ -943,53 +825,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
     let (mut responses, _) = split_results(&mut deserializer, accept_results);
     assert_eq!(responses.len(), 5, "Unexpected number of messages received");
 
-    match responses.remove(0) {
-        (
-            _,
-            RtmpMessage::Amf0Command {
-                command_name,
-                transaction_id,
-                command_object,
-                mut additional_arguments,
-            },
-        ) => {
-            assert_eq!(
-                command_name,
-                "onStatus".to_string(),
-                "Unexpected command name"
-            );
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
-            assert_eq!(
-                additional_arguments.len(),
-                1,
-                "Unexpected number of additional arguments"
-            );
-
-            match additional_arguments.remove(0) {
-                Amf0Value::Object(ref properties) => {
-                    assert_eq!(
-                        properties.get("level"),
-                        Some(&Amf0Value::Utf8String("status".to_string())),
-                        "Unexpected level value"
-                    );
-                    assert_eq!(
-                        properties.get("code"),
-                        Some(&Amf0Value::Utf8String("NetStream.Play.Reset".to_string())),
-                        "Unexpected code value"
-                    );
-                    assert!(
-                        properties.contains_key("description"),
-                        "Expected description"
-                    );
-                }
-
-                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
-            }
-        }
-
-        x => panic!("Expected play reset command, instead received: {:?}", x),
-    }
+    verify_is_onstatus(&responses.remove(0).1, "status", "NetStream.Play.Reset");
 
     match responses.remove(0) {
         (
@@ -1014,56 +850,7 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
         x => println!("Expected stream begin message, instead received: {:?}", x),
     }
 
-    match responses.remove(0) {
-        (
-            _,
-            RtmpMessage::Amf0Command {
-                command_name,
-                transaction_id,
-                command_object,
-                mut additional_arguments,
-            },
-        ) => {
-            assert_eq!(
-                command_name,
-                "onStatus".to_string(),
-                "Unexpected command name"
-            );
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(command_object, Amf0Value::Null, "Unexpected command object");
-            assert_eq!(
-                additional_arguments.len(),
-                1,
-                "Unexpected number of additional arguments"
-            );
-
-            match additional_arguments.remove(0) {
-                Amf0Value::Object(ref properties) => {
-                    assert_eq!(
-                        properties.get("level"),
-                        Some(&Amf0Value::Utf8String("status".to_string())),
-                        "Unexpected level value"
-                    );
-                    assert_eq!(
-                        properties.get("code"),
-                        Some(&Amf0Value::Utf8String("NetStream.Play.Start".to_string())),
-                        "Unexpected code value"
-                    );
-                    assert!(
-                        properties.contains_key("description"),
-                        "Expected description"
-                    );
-                }
-
-                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
-            }
-        }
-
-        x => panic!(
-            "Expected netstream play status command, instead received: {:?}",
-            x
-        ),
-    }
+    verify_is_onstatus(&responses.remove(0).1, "status", "NetStream.Play.Start");
 
     match responses.remove(0) {
         (_, RtmpMessage::Amf0Data { values }) => {
@@ -1121,16 +908,9 @@ fn can_accept_play_command_with_no_optional_parameters_to_requested_stream_key()
 
 #[test]
 fn can_accept_play_command_with_all_optional_parameters_to_requested_stream_key() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -1142,7 +922,7 @@ fn can_accept_play_command_with_all_optional_parameters_to_requested_stream_key(
         transaction_id: 4.0,
         command_object: Amf0Value::Null,
         additional_arguments: vec![
-            Amf0Value::Utf8String(test_stream_key.clone()),
+            Amf0Value::Utf8String(TEST_STREAM_KEY.to_string()),
             Amf0Value::Number(5.0),   // Start argument
             Amf0Value::Number(25.0),  // Duration,
             Amf0Value::Boolean(true), // reset
@@ -1167,12 +947,8 @@ fn can_accept_play_command_with_all_optional_parameters_to_requested_stream_key(
             request_id,
             stream_id: sid,
         } => {
-            assert_eq!(app_name, test_app_name.as_ref(), "Unexpected app name");
-            assert_eq!(
-                stream_key,
-                test_stream_key.as_ref(),
-                "Unexpected stream key"
-            );
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, TEST_STREAM_KEY, "Unexpected stream key");
             assert_eq!(
                 start_at,
                 PlayStartValue::StartTimeInSeconds(5),
@@ -1193,16 +969,9 @@ fn can_accept_play_command_with_all_optional_parameters_to_requested_stream_key(
 
 #[test]
 fn play_finished_event_when_close_stream_invoked() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -1210,7 +979,7 @@ fn play_finished_event_when_close_stream_invoked() {
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
 
     start_playing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -1238,8 +1007,8 @@ fn play_finished_event_when_close_stream_invoked() {
             app_name,
             stream_key,
         } => {
-            assert_eq!(app_name, test_app_name, "Unexpected app name");
-            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, TEST_STREAM_KEY, "Unexpected stream key");
         }
 
         event => panic!(
@@ -1251,16 +1020,9 @@ fn play_finished_event_when_close_stream_invoked() {
 
 #[test]
 fn play_finished_event_when_delete_stream_invoked_on_playing_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -1268,7 +1030,7 @@ fn play_finished_event_when_delete_stream_invoked_on_playing_stream() {
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
 
     start_playing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -1296,8 +1058,8 @@ fn play_finished_event_when_delete_stream_invoked_on_playing_stream() {
             app_name,
             stream_key,
         } => {
-            assert_eq!(app_name, test_app_name, "Unexpected app name");
-            assert_eq!(stream_key, test_stream_key, "Unexpected stream key");
+            assert_eq!(app_name, TEST_APP_NAME, "Unexpected app name");
+            assert_eq!(stream_key, TEST_STREAM_KEY, "Unexpected stream key");
         }
 
         event => panic!(
@@ -1309,23 +1071,16 @@ fn play_finished_event_when_delete_stream_invoked_on_playing_stream() {
 
 #[test]
 fn can_send_metadata_to_playing_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_playing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -1436,23 +1191,16 @@ fn can_send_metadata_to_playing_stream() {
 
 #[test]
 fn can_send_video_data_to_playing_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_playing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -1489,23 +1237,16 @@ fn can_send_video_data_to_playing_stream() {
 
 #[test]
 fn can_send_audio_data_to_playing_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "stream_key".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_playing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -1542,15 +1283,9 @@ fn can_send_audio_data_to_playing_stream() {
 
 #[test]
 fn automatically_responds_to_ping_requests() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -1599,15 +1334,9 @@ fn automatically_responds_to_ping_requests() {
 
 #[test]
 fn event_raised_when_ping_response_received() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -1643,15 +1372,9 @@ fn event_raised_when_ping_response_received() {
 
 #[test]
 fn can_send_ping_request() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -1688,23 +1411,16 @@ fn can_send_ping_request() {
 
 #[test]
 fn can_finish_playing_stream() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-    let test_stream_key = "SOME_STREAM_KEY".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
     );
     let stream_id = create_active_stream(&mut session, &mut serializer, &mut deserializer);
     start_playing(
-        test_stream_key.as_ref(),
+        TEST_STREAM_KEY,
         stream_id,
         &mut session,
         &mut serializer,
@@ -1718,56 +1434,14 @@ fn can_finish_playing_stream() {
         .unwrap();
     let message = payload.to_rtmp_message().unwrap();
 
-    match message {
-        RtmpMessage::Amf0Command {
-            command_name,
-            transaction_id,
-            command_object: Amf0Value::Null,
-            additional_arguments: mut args,
-        } => {
-            assert_eq!(
-                command_name,
-                "onStatus".to_string(),
-                "Unexpected command name"
-            );
-            assert_eq!(transaction_id, 0.0, "Unexpected transaction id");
-            assert_eq!(args.len(), 1, "Unexpected number of additional arguments");
-
-            let command = args.pop().unwrap().get_object_properties().unwrap();
-
-            assert_eq!(
-                command.get("level"),
-                Some(&Amf0Value::Utf8String("status".to_string()))
-            );
-            assert_eq!(
-                command.get("code"),
-                Some(&Amf0Value::Utf8String(
-                    "NetStream.Play.Complete".to_string()
-                ))
-            );
-            assert_eq!(
-                command.get("description"),
-                Some(&Amf0Value::Utf8String(
-                    "Stream playback is completed for SOME_STREAM_KEY".to_string()
-                ))
-            );
-        }
-
-        x => panic!("Expected onStatus command, received: {:?}", x),
-    }
+    verify_is_onstatus(&message, "status", "NetStream.Play.Complete");
 }
 
 #[test]
 fn sends_ack_after_receiving_window_ack_bytes() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -1834,15 +1508,9 @@ fn sends_ack_after_receiving_window_ack_bytes() {
 
 #[test]
 fn event_raised_when_client_sends_an_acknowledgement() {
-    let config = get_basic_config();
-    let test_app_name = "some_app".to_string();
-
-    let mut deserializer = ChunkDeserializer::new();
-    let mut serializer = ChunkSerializer::new();
-    let (mut session, results) = ServerSession::new(config.clone()).unwrap();
-    consume_results(&mut deserializer, results);
+    let (mut deserializer, mut serializer, mut session) = common_basic_setup();
     perform_connection(
-        test_app_name.as_ref(),
+        TEST_APP_NAME,
         &mut session,
         &mut serializer,
         &mut deserializer,
@@ -1881,6 +1549,20 @@ fn get_basic_config() -> ServerSessionConfig {
         peer_bandwidth: DEFAULT_PEER_BANDWIDTH,
         window_ack_size: DEFAULT_WINDOW_ACK_SIZE,
     }
+}
+
+fn common_setup(
+    config: &ServerSessionConfig,
+) -> (ChunkDeserializer, ChunkSerializer, ServerSession) {
+    let mut deserializer = ChunkDeserializer::new();
+    let serializer = ChunkSerializer::new();
+    let (session, initial_results) = ServerSession::new(config.clone()).unwrap();
+    consume_results(&mut deserializer, initial_results);
+    (deserializer, serializer, session)
+}
+
+fn common_basic_setup() -> (ChunkDeserializer, ChunkSerializer, ServerSession) {
+    common_setup(&get_basic_config())
 }
 
 fn split_results(
@@ -2140,4 +1822,51 @@ fn start_playing(
 
     let accept_results = session.accept_request(request_id).unwrap();
     consume_results(deserializer, accept_results);
+}
+
+fn verify_is_onstatus(subject: &RtmpMessage, expected_status: &str, expected_code: &str) {
+    match subject {
+        RtmpMessage::Amf0Command {
+            ref command_name,
+            ref transaction_id,
+            ref command_object,
+            ref additional_arguments,
+        } => {
+            assert_eq!(command_name.as_str(), "onStatus", "Unexpected command name");
+            assert_eq!(transaction_id, &0.0, "Unexpected transaction id");
+            assert_eq!(
+                command_object,
+                &Amf0Value::Null,
+                "Unexpected command object"
+            );
+            assert_eq!(
+                additional_arguments.len(),
+                1,
+                "Unexpected number of additional arguments"
+            );
+
+            match additional_arguments.first().unwrap() {
+                Amf0Value::Object(ref properties) => {
+                    assert_eq!(
+                        properties.get("level"),
+                        Some(&Amf0Value::Utf8String(expected_status.to_string())),
+                        "Unexpected level value"
+                    );
+                    assert_eq!(
+                        properties.get("code"),
+                        Some(&Amf0Value::Utf8String(expected_code.to_string())),
+                        "Unexpected code value"
+                    );
+                    assert!(
+                        properties.contains_key("description"),
+                        "Expected description"
+                    );
+                }
+
+                x => panic!("Expected amf0 object, but instead argument was: {:?}", x),
+            }
+        }
+
+        x => panic!("Expected Amf0Command command, instead received: {:?}", x),
+    }
 }
