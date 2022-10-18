@@ -2,7 +2,7 @@ use rml_rtmp::handshake::{Handshake, HandshakeProcessResult, PeerType};
 use std::collections::VecDeque;
 use std::io;
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{Shutdown, TcpStream};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::Duration;
@@ -128,7 +128,12 @@ fn start_byte_writer(byte_receiver: Receiver<Vec<u8>>, socket: &TcpStream) {
             loop {
                 match byte_receiver.try_recv() {
                     Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => return,
+                    Err(TryRecvError::Disconnected) => {
+                        socket
+                            .shutdown(Shutdown::Write)
+                            .expect("failed to shutdown socket (write)");
+                        return;
+                    }
                     Ok(bytes) => send_queue.push_back(bytes),
                 }
             }
@@ -139,6 +144,9 @@ fn start_byte_writer(byte_receiver: Receiver<Vec<u8>>, socket: &TcpStream) {
                     Ok(_) => (),
                     Err(error) => {
                         println!("Error writing to socket: {:?}", error);
+                        socket
+                            .shutdown(Shutdown::Write)
+                            .expect("failed to shutdown socket (write)");
                         return;
                     }
                 },
@@ -165,7 +173,10 @@ fn start_result_reader(sender: Sender<ReadResult>, socket: &TcpStream) {
                         byte_count: read_count,
                     };
 
-                    sender.send(result).unwrap();
+                    if let Err(_) = sender.send(result) {
+                        // receiver has been dropped
+                        return;
+                    }
                 }
 
                 Err(error) => {

@@ -194,6 +194,13 @@ impl Server {
                 );
             }
 
+            ServerSessionEvent::PublishStreamFinished {
+                app_name,
+                stream_key,
+            } => {
+                self.handle_publish_finished(app_name, stream_key, server_results);
+            }
+
             ServerSessionEvent::PlayStreamRequested {
                 request_id,
                 app_name,
@@ -353,6 +360,52 @@ impl Server {
             Ok(results) => {
                 self.handle_session_results(requested_connection_id, results, server_results);
             }
+        }
+    }
+
+    fn handle_publish_finished(
+        &mut self,
+        app_name: String,
+        stream_key: String,
+        server_results: &mut Vec<ServerResult>,
+    ) {
+        println!(
+            "Publish finished on app '{}' and stream key '{}'",
+            app_name, stream_key
+        );
+
+        let channel = match self.channels.get(&stream_key) {
+            Some(channel) => channel,
+            None => return,
+        };
+
+        for client_id in &channel.watching_client_ids {
+            let client = match self.clients.get_mut(*client_id) {
+                Some(client) => client,
+                None => continue,
+            };
+            let active_stream_id = match client.get_active_stream_id() {
+                Some(stream_id) => stream_id,
+                None => continue,
+            };
+
+            match client.session.finish_playing(active_stream_id) {
+                Ok(packet) => {
+                    server_results.push(ServerResult::OutboundPacket {
+                        target_connection_id: client.connection_id,
+                        packet,
+                    });
+                }
+                Err(error) => {
+                    println!(
+                        "Error sending stream end to client on connection id {}: {:?}",
+                        client.connection_id, error
+                    );
+                }
+            }
+            server_results.push(ServerResult::DisconnectConnection {
+                connection_id: client.connection_id,
+            });
         }
     }
 
