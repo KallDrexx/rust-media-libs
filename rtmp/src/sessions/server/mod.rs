@@ -269,6 +269,29 @@ impl ServerSession {
         }
     }
 
+    /// Tells the server session that it should reject an outstanding request
+    pub fn reject_request(
+        &mut self,
+        request_id: u32,
+        code: &str,
+        description: &str,
+    ) -> Result<Vec<ServerSessionResult>, ServerSessionError> {
+        let request = match self.outstanding_requests.remove(&request_id) {
+            Some(x) => x,
+            None => return Err(ServerSessionError::InvalidRequestId),
+        };
+
+        let (transaction_id, stream_id) = match request {
+            OutstandingRequest::ConnectionRequest { transaction_id, .. } => (transaction_id, 0),
+            OutstandingRequest::PublishRequested { stream_id, .. } => (0.0, stream_id),
+            OutstandingRequest::PlayRequested { stream_id, .. } => (0.0, stream_id),
+        };
+
+        let packet = self.create_error_packet(code, description, transaction_id, stream_id)?;
+
+        Ok(vec![ServerSessionResult::OutboundResponse(packet)])
+    }
+
     /// Prepares metadata information to be sent to the client
     pub fn send_metadata(
         &mut self,
