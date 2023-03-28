@@ -87,7 +87,7 @@ impl ClientSession {
             config,
         };
 
-        let results = Vec::with_capacity(1);
+        let results = Vec::new();
 
         Ok((session, results))
     }
