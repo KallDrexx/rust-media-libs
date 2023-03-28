@@ -260,7 +260,7 @@ fn successful_connect_request_sends_window_ack_size() {
 
     assert_eq!(
         responses.len(),
-        1,
+        2,
         "Unexpected number of responses received"
     );
     match responses.remove(0) {
@@ -270,6 +270,13 @@ fn successful_connect_request_sends_window_ack_size() {
         }
 
         (_, x) => panic!("Expected window ack message, instead found {:?}", x),
+    }
+    match responses.remove(0) {
+        (_, RtmpMessage::SetChunkSize { size }) => {
+            assert_eq!(size, config.chunk_size, "Unexpected chunk size");
+        }
+
+        (_, x) => panic!("Expected set chunk size message, instead found {:?}", x),
     }
 }
 
