@@ -8,13 +8,22 @@ use rml_amf0::Amf0Value;
 use std::collections::HashMap;
 
 #[test]
-fn new_session_creates_set_chunk_size_message() {
+fn new_session_and_successful_connect_creates_set_chunk_size_message() {
+    let app_name = "test".to_string();
     let mut config = ClientSessionConfig::new();
     config.chunk_size = 1111;
 
     let mut deserializer = ChunkDeserializer::new();
-    let (_, initial_results) = ClientSession::new(config.clone()).unwrap();
+    let mut serializer = ChunkSerializer::new();
+    let (mut session, initial_results) = ClientSession::new(config.clone()).unwrap();
     consume_results(&mut deserializer, initial_results);
+
+    perform_successful_connect(
+        app_name.clone(),
+        &mut session,
+        &mut serializer,
+        &mut deserializer,
+    );
 
     assert_eq!(
         deserializer.get_max_chunk_size(),
@@ -260,7 +269,7 @@ fn successful_connect_request_sends_window_ack_size() {
 
     assert_eq!(
         responses.len(),
-        1,
+        2,
         "Unexpected number of responses received"
     );
     match responses.remove(0) {
@@ -270,6 +279,13 @@ fn successful_connect_request_sends_window_ack_size() {
         }
 
         (_, x) => panic!("Expected window ack message, instead found {:?}", x),
+    }
+    match responses.remove(0) {
+        (_, RtmpMessage::SetChunkSize { size }) => {
+            assert_eq!(size, config.chunk_size, "Unexpected chunk size");
+        }
+
+        (_, x) => panic!("Expected set chunk size message, instead found {:?}", x),
     }
 }
 
