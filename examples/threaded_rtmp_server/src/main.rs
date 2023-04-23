@@ -8,7 +8,6 @@ mod server;
 use connection::{Connection, ConnectionError, ReadResult};
 use server::{Server, ServerResult};
 use slab::Slab;
-use std::collections::HashSet;
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::thread;
@@ -32,7 +31,6 @@ fn main() {
 
 fn handle_connections(connection_receiver: Receiver<TcpStream>) {
     let mut connections = Slab::new();
-    let mut connection_ids = HashSet::new();
     let mut server = Server::new();
 
     loop {
@@ -44,7 +42,6 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
                 let id = connections.insert(connection);
                 let connection = connections.get_mut(id).unwrap();
                 connection.connection_id = Some(id);
-                connection_ids.insert(id);
 
                 println!("Connection {} started", id);
             }
@@ -52,12 +49,11 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
 
         let mut ids_to_clear = Vec::new();
         let mut packets_to_write = Vec::new();
-        for connection_id in &connection_ids {
-            let connection = connections.get_mut(*connection_id).unwrap();
+        for (connection_id, connection) in connections.iter_mut() {
             match connection.read() {
                 Err(ConnectionError::SocketClosed) => {
                     println!("Socket closed for id {}", connection_id);
-                    ids_to_clear.push(*connection_id);
+                    ids_to_clear.push(connection_id);
                 }
 
                 Err(error) => {
@@ -65,7 +61,7 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
                         "I/O error while reading connection {}: {:?}",
                         connection_id, error
                     );
-                    ids_to_clear.push(*connection_id);
+                    ids_to_clear.push(connection_id);
                 }
 
                 Ok(result) => match result {
@@ -73,11 +69,11 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
                     ReadResult::HandshakingInProgress => (),
                     ReadResult::BytesReceived { buffer, byte_count } => {
                         let mut server_results =
-                            match server.bytes_received(*connection_id, &buffer[..byte_count]) {
+                            match server.bytes_received(connection_id, &buffer[..byte_count]) {
                                 Ok(results) => results,
                                 Err(error) => {
                                     println!("Input caused the following server error: {}", error);
-                                    ids_to_clear.push(*connection_id);
+                                    ids_to_clear.push(connection_id);
                                     continue;
                                 }
                             };
@@ -110,7 +106,6 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
 
         for closed_id in ids_to_clear {
             println!("Connection {} closed", closed_id);
-            connection_ids.remove(&closed_id);
             connections.remove(closed_id);
             server.notify_connection_closed(closed_id);
         }
