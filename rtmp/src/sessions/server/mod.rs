@@ -123,18 +123,20 @@ impl ServerSession {
         let peer_packet = session.serializer.serialize(&peer_payload, true, false)?;
         results.push(ServerSessionResult::OutboundResponse(peer_packet));
 
-        let bw_done_message = RtmpMessage::Amf0Command {
-            command_name: "onBWDone".to_string(),
-            transaction_id: 0.0,
-            command_object: Amf0Value::Null,
-            additional_arguments: vec![Amf0Value::Number(8192_f64)],
-        };
+        if config.send_on_bw_done_message_on_start {
+            let bw_done_message = RtmpMessage::Amf0Command {
+                command_name: "onBWDone".to_string(),
+                transaction_id: 0.0,
+                command_object: Amf0Value::Null,
+                additional_arguments: vec![Amf0Value::Number(8192_f64)],
+            };
 
-        let bw_done_payload = bw_done_message.into_message_payload(session.get_epoch(), 0)?;
-        let bw_done_packet = session
-            .serializer
-            .serialize(&bw_done_payload, true, false)?;
-        results.push(ServerSessionResult::OutboundResponse(bw_done_packet));
+            let bw_done_payload = bw_done_message.into_message_payload(session.get_epoch(), 0)?;
+            let bw_done_packet = session
+                .serializer
+                .serialize(&bw_done_payload, true, false)?;
+            results.push(ServerSessionResult::OutboundResponse(bw_done_packet));
+        }
 
         Ok((session, results))
     }
@@ -308,9 +310,9 @@ impl ServerSession {
             .video_height
             .map(|x| properties.insert("height".to_string(), Amf0Value::Number(x as f64)));
 
-        metadata.video_codec_id.map(|x| {
-            properties.insert("videocodecid".to_string(), Amf0Value::Number(x as f64))
-        });
+        metadata
+            .video_codec_id
+            .map(|x| properties.insert("videocodecid".to_string(), Amf0Value::Number(x as f64)));
 
         metadata
             .video_bitrate_kbps
@@ -320,9 +322,9 @@ impl ServerSession {
             .video_frame_rate
             .map(|x| properties.insert("framerate".to_string(), Amf0Value::Number(x as f64)));
 
-        metadata.audio_codec_id.map(|x| {
-            properties.insert("audiocodecid".to_string(), Amf0Value::Number(x as f64))
-        });
+        metadata
+            .audio_codec_id
+            .map(|x| properties.insert("audiocodecid".to_string(), Amf0Value::Number(x as f64)));
 
         metadata
             .audio_bitrate_kbps

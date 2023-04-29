@@ -443,16 +443,10 @@ fn active_play_session_raises_events_when_stream_metadata_changes() {
     let mut properties = HashMap::new();
     properties.insert("width".to_string(), Amf0Value::Number(1920_f64));
     properties.insert("height".to_string(), Amf0Value::Number(1080_f64));
-    properties.insert(
-        "videocodecid".to_string(),
-        Amf0Value::Number(10.0),
-    );
+    properties.insert("videocodecid".to_string(), Amf0Value::Number(10.0));
     properties.insert("videodatarate".to_string(), Amf0Value::Number(1200_f64));
     properties.insert("framerate".to_string(), Amf0Value::Number(30_f64));
-    properties.insert(
-        "audiocodecid".to_string(),
-        Amf0Value::Number(7.0),
-    );
+    properties.insert("audiocodecid".to_string(), Amf0Value::Number(7.0));
     properties.insert("audiodatarate".to_string(), Amf0Value::Number(96_f64));
     properties.insert("audiosamplerate".to_string(), Amf0Value::Number(48000_f64));
     properties.insert("audiosamplesize".to_string(), Amf0Value::Number(16_f64));

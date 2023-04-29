@@ -68,6 +68,25 @@ fn new_config_creates_initial_responses() {
 }
 
 #[test]
+fn on_bw_done_not_sent_when_config_disables_it() {
+    let mut config = get_basic_config();
+    config.send_on_bw_done_message_on_start = false;
+
+    let mut deserializer = ChunkDeserializer::new();
+    let (_, results) = ServerSession::new(config).unwrap();
+
+    let (responses, _) = split_results(&mut deserializer, results);
+
+    for (_, message) in responses {
+        if let RtmpMessage::Amf0Command { command_name, .. } = message {
+            if command_name == "onBWDone" {
+                assert!(false, "onBWDone message received, but not expected");
+            }
+        }
+    }
+}
+
+#[test]
 fn can_accept_connection_request() {
     let config = get_basic_config();
     let (mut deserializer, mut serializer, mut session) = common_setup(&config);
@@ -418,16 +437,10 @@ fn can_receive_and_raise_event_for_metadata_from_obs() {
     let mut properties = HashMap::new();
     properties.insert("width".to_string(), Amf0Value::Number(1920_f64));
     properties.insert("height".to_string(), Amf0Value::Number(1080_f64));
-    properties.insert(
-        "videocodecid".to_string(),
-        Amf0Value::Number(10.0),
-    );
+    properties.insert("videocodecid".to_string(), Amf0Value::Number(10.0));
     properties.insert("videodatarate".to_string(), Amf0Value::Number(1200_f64));
     properties.insert("framerate".to_string(), Amf0Value::Number(30_f64));
-    properties.insert(
-        "audiocodecid".to_string(),
-        Amf0Value::Number(7.0),
-    );
+    properties.insert("audiocodecid".to_string(), Amf0Value::Number(7.0));
     properties.insert("audiodatarate".to_string(), Amf0Value::Number(96_f64));
     properties.insert("audiosamplerate".to_string(), Amf0Value::Number(48000_f64));
     properties.insert("audiosamplesize".to_string(), Amf0Value::Number(16_f64));
@@ -470,11 +483,7 @@ fn can_receive_and_raise_event_for_metadata_from_obs() {
             );
             assert_eq!(metadata.video_width, Some(1920), "Unexpected video width");
             assert_eq!(metadata.video_height, Some(1080), "Unexepcted video height");
-            assert_eq!(
-                metadata.video_codec_id,
-                Some(10),
-                "Unexepcted video codec"
-            );
+            assert_eq!(metadata.video_codec_id, Some(10), "Unexepcted video codec");
             assert_eq!(
                 metadata.video_frame_rate,
                 Some(30_f32),
@@ -485,11 +494,7 @@ fn can_receive_and_raise_event_for_metadata_from_obs() {
                 Some(1200),
                 "Unexpected video bitrate"
             );
-            assert_eq!(
-                metadata.audio_codec_id,
-                Some(7),
-                "Unexpected audio codec"
-            );
+            assert_eq!(metadata.audio_codec_id, Some(7), "Unexpected audio codec");
             assert_eq!(
                 metadata.audio_bitrate_kbps,
                 Some(96),
@@ -1548,6 +1553,7 @@ fn get_basic_config() -> ServerSessionConfig {
         fms_version: "fms_version".to_string(),
         peer_bandwidth: DEFAULT_PEER_BANDWIDTH,
         window_ack_size: DEFAULT_WINDOW_ACK_SIZE,
+        send_on_bw_done_message_on_start: true,
     }
 }
 
