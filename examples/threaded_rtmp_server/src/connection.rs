@@ -31,7 +31,7 @@ impl From<io::Error> for ConnectionError {
 }
 
 pub struct Connection {
-    pub connection_id: Option<usize>,
+    pub connection_id: usize,
     writer: Sender<Vec<u8>>,
     reader: Receiver<ReadResult>,
     handshake: Handshake,
@@ -39,7 +39,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(socket: TcpStream) -> Connection {
+    pub fn new(connection_id: usize, socket: TcpStream) -> Connection {
         let (byte_sender, byte_receiver) = channel();
         let (result_sender, result_receiver) = channel();
 
@@ -47,7 +47,7 @@ impl Connection {
         start_result_reader(result_sender, &socket);
 
         Connection {
-            connection_id: None,
+            connection_id,
             writer: byte_sender,
             reader: result_receiver,
             handshake: Handshake::new(PeerType::Server),

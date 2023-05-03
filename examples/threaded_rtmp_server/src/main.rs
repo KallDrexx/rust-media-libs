@@ -38,12 +38,11 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
             Err(TryRecvError::Disconnected) => panic!("Connection receiver closed"),
             Err(TryRecvError::Empty) => (),
             Ok(stream) => {
-                let connection = Connection::new(stream);
-                let id = connections.insert(connection);
-                let connection = connections.get_mut(id).unwrap();
-                connection.connection_id = Some(id);
+                let entry = connections.vacant_entry();
+                let connection_id = entry.key();
+                entry.insert(Connection::new(connection_id, stream));
 
-                println!("Connection {} started", id);
+                println!("Connection {connection_id} started");
             }
         }
 
