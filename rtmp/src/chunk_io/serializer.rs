@@ -293,7 +293,7 @@ fn add_extended_timestamp(
 }
 
 fn add_message_payload(bytes: &mut dyn Write, data: &[u8]) -> Result<(), ChunkSerializationError> {
-    bytes.write(data)?;
+    bytes.write_all(data)?;
     Ok(())
 }
 
