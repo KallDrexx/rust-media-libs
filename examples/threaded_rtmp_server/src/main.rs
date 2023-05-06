@@ -67,7 +67,7 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
                     ReadResult::NoBytesReceived => (),
                     ReadResult::HandshakingInProgress => (),
                     ReadResult::BytesReceived { buffer, byte_count } => {
-                        let mut server_results =
+                        let server_results =
                             match server.bytes_received(connection_id, &buffer[..byte_count]) {
                                 Ok(results) => results,
                                 Err(error) => {
@@ -77,7 +77,7 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
                                 }
                             };
 
-                        for result in server_results.drain(..) {
+                        for result in server_results.into_iter() {
                             match result {
                                 ServerResult::OutboundPacket {
                                     target_connection_id,
@@ -98,7 +98,7 @@ fn handle_connections(connection_receiver: Receiver<TcpStream>) {
             }
         }
 
-        for (connection_id, packet) in packets_to_write.drain(..) {
+        for (connection_id, packet) in packets_to_write.into_iter() {
             let connection = connections.get_mut(connection_id).unwrap();
             connection.write(packet.bytes);
         }
