@@ -105,9 +105,7 @@ impl Connection {
 
                 let mut buffer = [0; BUFFER_SIZE];
                 let buffer_size = remaining_bytes.len();
-                for (index, value) in remaining_bytes.into_iter().enumerate() {
-                    buffer[index] = value;
-                }
+                buffer[..buffer_size].copy_from_slice(&remaining_bytes);
 
                 self.handshake_completed = true;
                 Ok(ReadResult::BytesReceived {
@@ -158,18 +156,13 @@ fn start_byte_writer(byte_receiver: Receiver<Vec<u8>>, socket: &TcpStream) {
 fn start_result_reader(sender: Sender<ReadResult>, socket: &TcpStream) {
     let mut socket = socket.try_clone().unwrap();
     thread::spawn(move || {
-        let mut buffer = [0; BUFFER_SIZE];
         loop {
+            let mut buffer = [0; BUFFER_SIZE];
             match socket.read(&mut buffer) {
                 Ok(0) => return, // socket closed
                 Ok(read_count) => {
-                    let mut send_buffer = [0; BUFFER_SIZE];
-                    for x in 0..read_count {
-                        send_buffer[x] = buffer[x];
-                    }
-
                     let result = ReadResult::BytesReceived {
-                        buffer: send_buffer,
+                        buffer,
                         byte_count: read_count,
                     };
 

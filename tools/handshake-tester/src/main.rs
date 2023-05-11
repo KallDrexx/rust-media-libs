@@ -24,7 +24,7 @@ fn act_as_client(host_address: &str) {
     let mut stream = TcpStream::connect(host_address).unwrap();
     let mut handshake = Handshake::new(PeerType::Client);
     let c0_and_c1 = handshake.generate_outbound_p0_and_p1().unwrap();
-    stream.write(&c0_and_c1).unwrap();
+    stream.write_all(&c0_and_c1).unwrap();
 
     let mut read_buffer = [0_u8; 1024];
 
@@ -43,7 +43,7 @@ fn act_as_client(host_address: &str) {
             };
 
         if response_bytes.len() > 0 {
-            stream.write(&response_bytes).unwrap();
+            stream.write_all(&response_bytes).unwrap();
         }
 
         if is_finished {
@@ -80,7 +80,7 @@ fn act_as_server() {
                 };
 
             if response_bytes.len() > 0 {
-                stream.write(&response_bytes).unwrap();
+                stream.write_all(&response_bytes).unwrap();
             }
 
             if is_finished {

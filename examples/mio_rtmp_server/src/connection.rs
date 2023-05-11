@@ -175,7 +175,7 @@ impl Connection {
                         None => (),
                         Some(ref mut logs) => {
                             logs.rtmp_input_file
-                                .write(&read_buffer[..byte_count])
+                                .write_all(&read_buffer[..byte_count])
                                 .unwrap();
                         }
                     },
@@ -226,7 +226,7 @@ impl Connection {
                     match self.debug_log_files {
                         None => (),
                         Some(ref mut logs) => {
-                            logs.rtmp_output_file.write(&bytes).unwrap();
+                            logs.rtmp_output_file.write_all(&bytes).unwrap();
                         }
                     }
                 }

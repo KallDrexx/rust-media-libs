@@ -640,8 +640,8 @@ impl Server {
             let should_send_to_client = match data_type {
                 ReceivedDataType::Video => {
                     client.has_received_video_keyframe
-                        || (is_video_sequence_header(data.clone())
-                            || is_video_keyframe(data.clone()))
+                        || is_video_sequence_header(data.clone())
+                        || is_video_keyframe(data.clone())
                 }
 
                 ReceivedDataType::Audio => {
