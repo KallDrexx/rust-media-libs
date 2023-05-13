@@ -120,36 +120,15 @@ impl Connection {
 fn start_byte_writer(byte_receiver: Receiver<Vec<u8>>, socket: &TcpStream) {
     let mut socket = socket.try_clone().expect("failed to clone socket");
     thread::spawn(move || {
-        let mut send_queue = VecDeque::new();
-
-        loop {
-            loop {
-                match byte_receiver.try_recv() {
-                    Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => {
-                        socket
-                            .shutdown(Shutdown::Write)
-                            .expect("failed to shutdown socket (write)");
-                        return;
-                    }
-                    Ok(bytes) => send_queue.push_back(bytes),
-                }
-            }
-
-            match send_queue.pop_front() {
-                None => thread::sleep(Duration::from_millis(1)),
-                Some(bytes) => match socket.write(&bytes) {
-                    Ok(_) => (),
-                    Err(error) => {
-                        println!("Error writing to socket: {:?}", error);
-                        socket
-                            .shutdown(Shutdown::Write)
-                            .expect("failed to shutdown socket (write)");
-                        return;
-                    }
-                },
+        while let Ok(bytes) = byte_receiver.recv() {
+            if let Err(error) = socket.write_all(&bytes) {
+                println!("Error writing to socket: {:?}", error);
+                break;
             }
         }
+        socket
+            .shutdown(Shutdown::Write)
+            .expect("failed to shutdown socket (write)");
     });
 }
 
