@@ -735,7 +735,7 @@ impl ServerSession {
         };
 
         let mode = match arguments.remove(0) {
-            Amf0Value::Utf8String(raw_mode) => match raw_mode.as_ref() {
+            Amf0Value::Utf8String(raw_mode) => match raw_mode.to_lowercase().as_ref() {
                 "live" => PublishMode::Live,
                 "append" => PublishMode::Append,
                 "record" => PublishMode::Record,
