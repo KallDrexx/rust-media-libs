@@ -355,7 +355,7 @@ impl ChunkDeserializer {
         } else if self.current_payload_data.len() == 0 {
             // Since we already added the MAX_INITIAL_TIMESTAMP to the timestamp, only add the delta difference
             self.current_header.timestamp =
-                self.current_header.timestamp + (timestamp - MAX_INITIAL_TIMESTAMP);
+                self.current_header.timestamp + timestamp.wrapping_sub(MAX_INITIAL_TIMESTAMP);
         }
 
         self.current_stage = ParseStage::MessagePayload;
@@ -368,7 +368,13 @@ impl ChunkDeserializer {
     ) -> Result<ParseStageResult, ChunkDeserializationError> {
         let mut length = self.current_header.message_length as usize;
         let current_payload_length = self.current_payload_data.len();
-        let remaining_bytes = length - current_payload_length;
+        let remaining_bytes = length.checked_sub(current_payload_length).ok_or(
+            ChunkDeserializationError::MessageLengthBelowReceivedPayload {
+                csid: self.current_header.chunk_stream_id,
+                message_length: self.current_header.message_length,
+                received: current_payload_length,
+            },
+        )?;
         if length > self.max_chunk_size as usize {
             length = min(remaining_bytes, self.max_chunk_size as usize);
         }

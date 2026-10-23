@@ -20,6 +20,15 @@ pub enum ChunkDeserializationError {
     #[error("Requested an invalid max chunk size of {chunk_size}.  The largest chunk size possible is 2147483647")]
     InvalidMaxChunkSize { chunk_size: usize },
 
+    /// A chunk header changed the message length to less than the number of payload bytes already
+    /// received for the message in progress.
+    #[error("Message length {message_length} on csid {csid} is less than the {received} bytes already received")]
+    MessageLengthBelowReceivedPayload {
+        csid: u32,
+        message_length: u32,
+        received: usize,
+    },
+
     /// An I/O error occurred while reading the input buffer
     #[error("{0}")]
     Io(#[from] io::Error),
